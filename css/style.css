@@ -761,8 +761,8 @@ fieldset {
     }
     #home,
     .disply-table {
-        min-height: 650px;
-        height: auto;
+        height: 700px;
+        max-height: auto;
     }
     .about-border {
         width: 265px;
