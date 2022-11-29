@@ -1,0 +1,167 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chrome漏洞分析与利用(一)——Windows V8漏洞环境编译</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h2><a id="_0"></a>工具：</h2>
+<ul>
+<li>ninja: <a href="https://github.com/martine/ninja">ninja git地址</a></li>
+<li>depot-tools: <a href="https://chromium.googlesource.com/chromium/tools/depot_tools">depot-tools git地址</a></li>
+<li>vs2019: 官网下载，使用默认安装路径，否则在用v8gen.py时会因为路径问题导致失败，如果非要使用自定义路径，则需要去改v8源码目录中的vs_toolchain.py脚本，其中有一行代码<code>path = os.path.expandvars('%ProgramFiles(x86)%' +                             '/Microsoft Visual Studio/%s' % version)</code>会去默认安装路径查找vs，可以将此路径改为自定义的vs安装路径</li>
+<li>git: 官网下载</li>
+<li>python2: 需要用到urllib2模块所以使用py2，pip直接安装urllib2可能会报错，直接装urllib3即可</li>
+</ul>
+<h2><a id="_9"></a>环境配置</h2>
+<p>因为需要从google下载大量的内容所以需要代理<br>
+git代理设置：</p>
+<pre><code> git config --global https.proxy http://地址:端口
+ git config --global https.proxy https://地址:端口
+ git config --global http.proxy socks5://地址:端口
+ git config --global https.proxy socks5://地址:端口
+</code></pre>
+<p>系统环境变量设置，此处配置完如果依然报错<code>[fetch 1/2] RPC failed transiently....</code>那就重启以下：<br>
+http://地址:端口<br>
+<img src="https://img-blog.csdnimg.cn/34e7ecb807e14cdd8553e12b43fba4f8.png" alt="在这里插入图片描述"><br>
+系统代理设置(需要使用管理员权限运行cmd):<br>
+<code>netsh winhttp set proxy http://地址:端口</code><br>
+再在设置里将代理打开<br>
+<img src="https://img-blog.csdnimg.cn/ec751f355c6c42d3b0001fd6cb2fb38c.png" alt="在这里插入图片描述"><br>
+将ninja与depot_tools路径写入系统默认路径<br>
+<img src="https://img-blog.csdnimg.cn/7aa6d4450d144d63b7a3d7e8c88a59b3.png" alt="在这里插入图片描述"><br>
+然后在命令行中设置一个临时环境变量<br>
+<code>set DEPOT_TOOLS_WIN_TOOLCHAIN=0</code></p>
+<h2><a id="_30"></a>编译流程</h2>
+<p>创建一个用于存放v8代码的目录cd进入，执行</p>
+<pre><code>fetch v8
+gclient sync
+</code></pre>
+<p>如果代理配置有误可能会一直卡住或一直报以下错误<br>
+<img src="https://img-blog.csdnimg.cn/abaf7d8394274d11b266d5699b5092ac.png" alt="在这里插入图片描述"><br>
+假设现在要编译存在issue-1196683(CVE 2021-21220)漏洞环境，打开issue链接：<a href="https://bugs.chromium.org/p/chromium/issues/detail?id=1196683">https://bugs.chromium.org/p/chromium/issues/detail?id=1196683</a><br>
+找到commit并进入<br>
+<img src="https://img-blog.csdnimg.cn/0c4f14815116427f8d2762e17e4494c3.png" alt="在这里插入图片描述"><br>
+由于此版本已经将漏洞修复，所以找到上一个版本<br>
+<img src="https://img-blog.csdnimg.cn/4edd56c4622e4c3483a69760c4d75c55.png" alt="在这里插入图片描述"><br>
+拷贝其commit哈希<br>
+<img src="https://img-blog.csdnimg.cn/55b895666d54492fa0245c95a9a2d67c.png" alt="在这里插入图片描述"><br>
+执行以下指令将v8版本回滚到存在漏洞的版本，并重新执行<code>gclient sync</code></p>
+<pre><code>git reset --hard 1e4b1c521a491c7487028b7f2aec550c1b36606b
+gclient sync
+</code></pre>
+<p>然后在v8源码根目录下执行以下指令进行编译，编译过程会很漫长，而且可能会占满CPU，如果已经编译过debug版本还需要编译release版本的话，直接忽略以上步骤直接执行以下内容将所有debug都替换为release即可，但要注意的是必须要设置DEPOT_TOOLS_WIN_TOOLCHAIN环境变量否则还是会报错。</p>
+<pre><code>set DEPOT_TOOLS_WIN_TOOLCHAIN=0
+python tools/dev/v8gen.py -vv x64.debug
+ninja -C out.gn\x64.debug
+</code></pre>
+<p>编译好后可以在out.gn\x64.debug目录下找到编译好的exe以及dll文件，其中d8.exe可以帮我们进行一些基础的调试分析<br>
+<img src="https://img-blog.csdnimg.cn/58d348c1a9074aa69013f8ce668361e1.png" alt="在这里插入图片描述"></p>
+<h2><a id="_58"></a>补充</h2>
+<h3><a id="_59"></a>注意点一</h3>
+<p>除此以外在编译较新版本v8时还可能会遇上以下情况<br>
+<img src="https://img-blog.csdnimg.cn/fd82027e3893419e83343c0ee9b3dbf1.png" alt="在这里插入图片描述"><br>
+然后去查看FILE_INFO_BY_HANDLE_CLASS的定义后发现存在一句条件编译指令。<img src="https://img-blog.csdnimg.cn/f1038c9478364e1bb9886580942217ca.png" alt="在这里插入图片描述"><br>
+基本可以确定就是这个条件编译指令的原因，将其注释后再编译，出现以下报错<br>
+<img src="https://img-blog.csdnimg.cn/0aeb659755e146dda0d58fb7f5c442db.png" alt="在这里插入图片描述"><br>
+查看后依然还是条件编译指令在判断NTDDI版本时出的问题<br>
+<img src="https://img-blog.csdnimg.cn/2e33275f9b59454e8239319af39e3f16.png" alt="在这里插入图片描述"><br>
+将其注释后再编译，还剩一个报错。<br>
+<img src="https://img-blog.csdnimg.cn/d2bc78f6f5724338be91ae298b34e7b9.png" alt="在这里插入图片描述"><br>
+查看该函数在Version_Helper.h中的定义，发现还是NTDDI版本的问题，再注释编译<br>
+<img src="https://img-blog.csdnimg.cn/e2bc602aee8145df869e066ef190552d.png" alt=""><br>
+然后发现win系统库中存在大量此类条件编译一个一个注释掉显然不现实，然后观察报错输出后发现两个sdk版本号对不上，10.0.19041.0是我的，而后面的10.0.20348.0我都没有装。<br>
+<img src="https://img-blog.csdnimg.cn/7b324fc4c5a7403fa06386a5fe66b7c9.png" alt="在这里插入图片描述"><br>
+在vs拓展工具里去掉10.0.19041.0，安装10.0.20348.0，相当于将sdk升级至win10平台最新版<br>
+<img src="https://img-blog.csdnimg.cn/12964441acff4dfb85deae0f821abab6.png" alt="在这里插入图片描述"><br>
+然后编译完成，总结来讲在编译新版v8时最好将sdk也升至最新版</p>
+<h3><a id="_76"></a>注意点二</h3>
+<p>如果升级过sdk后使用<code>python tools/dev/v8gen.py -vv x64.debug</code>生成编译配置文件时出现如下报错:</p>
+<pre><code> C:\vun\v8\buildtools\win\gn.exe gen out.gn/x64.debug --check
+    -&gt; returned 1
+  ERROR at //build/config/win/BUILD.gn:297:27: Script returned non-zero exit code.
+    vcvars_toolchain_data = exec_script("../../toolchain/win/setup_toolchain.py",
+                            ^----------
+  Current dir: C:/vun/v8/out.gn/x64.debug/
+  Command: C:/vun/depot_tools/bootstrap-2@3_8_10_chromium_23_bin/python/bin/python.exe C:/vun/v8/build/toolchain/win/setup_toolchain.py "C:\Program Files (x86)/Microsoft Visual Studio/2019/Community" "C:\Program Files (x86)\Windows Kits\10" "C:\Windows\System32;C:\Windows\SysWOW64;Arm64Unused" win x64 none
+  Returned 1.
+  See //build/config/BUILDCONFIG.gn:343:5: which caused the file to be included.
+      "//build/config/win:lean_and_mean",
+      ^---------------------------------
+  Traceback (most recent call last):
+
+    File "C:/vun/v8/build/toolchain/win/setup_toolchain.py", line 311, in &lt;module&gt;
+
+      main()
+
+    File "C:/vun/v8/build/toolchain/win/setup_toolchain.py", line 271, in main
+
+      vc_lib_um_path = FindFileInEnvList(env, 'LIB', ';', 'user32.lib')
+
+    File "C:/vun/v8/build/toolchain/win/setup_toolchain.py", line 210, in FindFileInEnvList
+
+      file_name, env_name, '\n'.join(parts))
+
+  AssertionError: user32.lib is not found in LIB:
+
+  C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\ATLMFC\lib\x64
+
+  C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\lib\x64
+
+  C:\Program Files (x86)\Windows Kits\10\lib\10.0.19041.0\ucrt\x64
+
+  C:\Program Files (x86)\Windows Kits\10\lib\10.0.19041.0\um\x64
+
+  Check if it is installed.
+
+  Traceback (most recent call last):
+
+    File "C:/vun/v8/build/toolchain/win/setup_toolchain.py", line 311, in &lt;module&gt;
+
+      main()
+
+    File "C:/vun/v8/build/toolchain/win/setup_toolchain.py", line 271, in main
+
+      vc_lib_um_path = FindFileInEnvList(env, 'LIB', ';', 'user32.lib')
+
+    File "C:/vun/v8/build/toolchain/win/setup_toolchain.py", line 210, in FindFileInEnvList
+
+      file_name, env_name, '\n'.join(parts))
+
+  AssertionError: user32.lib is not found in LIB:
+
+  C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\ATLMFC\lib\x86
+
+  C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\lib\x86
+
+  C:\Program Files (x86)\Windows Kits\10\lib\10.0.19041.0\ucrt\x86
+
+  C:\Program Files (x86)\Windows Kits\10\lib\10.0.19041.0\um\x86
+
+  Check if it is installed.
+
+  GN gen failed: 1
+Traceback (most recent call last):
+  File "tools/dev/v8gen.py", line 307, in &lt;module&gt;
+    sys.exit(gen.main())
+  File "tools/dev/v8gen.py", line 301, in main
+    return self._options.func()
+  File "tools/dev/v8gen.py", line 169, in cmd_gen
+    gn_outdir,
+  File "tools/dev/v8gen.py", line 211, in _call_cmd
+    stderr=subprocess.STDOUT,
+  File "C:\vun\depot_tools\bootstrap-2@3_8_10_chromium_23_bin\python\bin\lib\subprocess.py", line 223, in check_output
+    raise CalledProcessError(retcode, cmd, output=output)
+subprocess.CalledProcessError: Command '['C:\\vun\\depot_tools\\bootstrap-2@3_8_10_chromium_23_bin\\python\\bin\\python.exe', '-u', 'tools\\mb\\mb.py', 'gen', '-f', 'infra\\mb\\mb_config.pyl', '-m', 'developer_default', '-b', 'x64.debug', 'out.gn/x64.debug']' returned non-zero exit status 1
+</code></pre>
+<p>打开v8\build\toolchain\win目录下的setup_toolchain.py文件百分之九十的路径问题报错都源于该脚本文件，该脚本文件较为奇葩它将sdk版本号直接写死在脚本文件里，注意核查该处sdk版本号与你所配置使用的sdk版本号是否一致，不一致就改<br>
+<img src="https://img-blog.csdnimg.cn/b647f82cd3e84c1d9be2d37056ee7ffa.png" alt="在这里插入图片描述"><br>
+更改后输出成功</p>
+</div>
+</body>
+
+</html>

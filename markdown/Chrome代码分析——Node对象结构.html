@@ -1,0 +1,141 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chrome代码分析(一)——Node对象结构</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h1><a id="Node_0"></a>Node</h1>
+<p><a href="https://source.chromium.org/chromium/chromium/src/+/main:v8/src/compiler/node.h;l=42;drc=27e39fa1dd71076618c358639ed8a327bc3873c4;bpv=1;bpt=1">Chromium Code</a><br>
+v8的jit优化引擎叫做<a href="https://v8.dev/docs/turbofan">Turbofan</a>，Turbofan使用了节点之海(Sea of Nodes)的概念，通俗来讲就是将代码中的各种变量对象、控制流、效果转化为node以及edge进行处理：<br>
+<img src="https://img-blog.csdnimg.cn/970946ed8ad046a192b14a86c1c6ccc8.png" alt="在这里插入图片描述"></p>
+<h1><a id="_4"></a>代码分析</h1>
+<h2><a id="Node_5"></a>Node</h2>
+<p>随便找到一处会处理node对象的代码对其下断，并用查看其结构：<br>
+<img src="https://img-blog.csdnimg.cn/a93a58dfac804470a5e09a6bebb12d06.png" alt="在这里插入图片描述"></p>
+<ul>
+<li>kOutlineMarker：此字段用于标识node是否是outline的方式布局，通常会将此字段与inline_count进行比较如果两者相等就以outline的形式去获取Inputs对象</li>
+<li>kMaxInlineCapacity：此字段用于标识node的最大inline容量，如果超过此容量就以outline的形式去布局</li>
+<li>op_：此字段是一个 Operator类型对象，主要用于标识当节点属于哪个节点，例如Allocate节点或者FrameState节点等</li>
+<li>bit_field_：此字段从命名来看是一个位字段，此字段的主要作用就是配合相应的decode函数来获取一些具体的值信息，例如通过将此字段作为参数调用InlineCountField::decode函数就可以获取inline_count，调用InlineCapacityField::decode就可以获取到当前的InlineCapacity等，具体的解码操作实际就是进行一些位运算此字段的主要用途应该就是为了节省node对象的空间</li>
+<li>first_use_:此字段用于标识node结构中的use对象成员所在的首地址，关于use对象后续会说明</li>
+</ul>
+<p>这其中关于mark_与type_字段具体用途暂且未知，不过这两个字段从命名上来看主要起到一个标记与类型标识的作用且这两个字段并不常用暂且搁置。<br>
+node对象由 Node::New函数创建，该函数会去调用Node::NewImpl函数<br>
+<img src="https://img-blog.csdnimg.cn/d91773355715499ca5012c2cf201b4a3.png" alt="在这里插入图片描述"><br>
+NewImpl函数会先创建几个空对象。<br>
+<img src="https://img-blog.csdnimg.cn/d02b777087e14b57a0a109251ccff127.png" alt="在这里插入图片描述"><br>
+随后根据input_count依次判断input是否都不为空，如果有空的input就报错：<br>
+<img src="https://img-blog.csdnimg.cn/cb6abd56c3504144bfe67caa0b2a02b8.png" alt="在这里插入图片描述"><br>
+然后会去判断input_count是否大于kMaxInlineCapacity，在目前最新v8版本下kMaxInlineCapacity实际值为0xE。<br>
+<img src="https://img-blog.csdnimg.cn/829eac1e747c402e865f5ab7e36ad7f6.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/b13081f3205b48959f2536bd1b7e2a1a.png" alt="在这里插入图片描述"><br>
+此处之所以会如此比较主要与node的两种内存布局有关，源码中的<a href="https://source.chromium.org/chromium/chromium/src/+/main:v8/src/compiler/node.h;drc=8f243f4c58be1a3ffdfd378978d8f26f5d7ca997;l=208">注释</a>如下，当node布局为inline模式时Use在Node之前的低地址，Input指针在Node之后的高地址，两者相互对应，通过Use可以找到input，通过input同样也可以找到Use，Use以node-1(指针加减运算，并非真的是地址-1)的位置开始从右至左通过计算依次获取地址将该地址作为相应的input的use，以node+1为起始，将input对象地址从左往右排布存放在通过计算得到的相应位置，也就是说node右边第一个input对应node左边第一个use。当input个数大于最大内联容量(kMaxInlineCapacity)时就会采用OOL(out-of-line)的布局方式去布局node，OOL模式下的use、node、input为了防止触发Scavenge GC启动导致造成额外的开销，会将它们三个放在不连续的内存区域中，也就是说当input&gt;kMaxInlineCapacity时就会采取OOL布局，由于大多数情况下一个节点有超过14个input的情况并不多见，所以此处只对inline布局进行说明。</p>
+<pre><code class="prism language-cpp"><span class="token comment">//============================================================================</span>
+  <span class="token comment">//== Memory layout ===========================================================</span>
+  <span class="token comment">//============================================================================</span>
+  <span class="token comment">// Saving space for big graphs is important. We use a memory layout trick to</span>
+  <span class="token comment">// be able to map {Node} objects to {Use} objects and vice-versa in a</span>
+  <span class="token comment">// space-efficient manner.</span>
+  <span class="token comment">//</span>
+  <span class="token comment">// {Use} links are laid out in memory directly before a {Node}, followed by</span>
+  <span class="token comment">// direct pointers to input {Nodes}.</span>
+  <span class="token comment">//</span>
+  <span class="token comment">// inline case:</span>
+  <span class="token comment">// |Use #N  |Use #N-1|...|Use #1  |Use #0  |Node xxxx |I#0|I#1|...|I#N-1|I#N|</span>
+  <span class="token comment">//          ^                              ^                  ^</span>
+  <span class="token comment">//          + Use                          + Node             + Input</span>
+  <span class="token comment">//</span>
+  <span class="token comment">// Since every {Use} instance records its {input_index}, pointer arithmetic</span>
+  <span class="token comment">// can compute the {Node}.</span>
+  <span class="token comment">//</span>
+  <span class="token comment">// out-of-line case:</span>
+  <span class="token comment">//     |Node xxxx |</span>
+  <span class="token comment">//     ^       + outline ------------------+</span>
+  <span class="token comment">//     +----------------------------------------+</span>
+  <span class="token comment">//                                         |    |</span>
+  <span class="token comment">//                                         v    | node</span>
+  <span class="token comment">// |Use #N  |Use #N-1|...|Use #1  |Use #0  |OOL xxxxx |I#0|I#1|...|I#N-1|I#N|</span>
+  <span class="token comment">//          ^                                                 ^</span>
+  <span class="token comment">//          + Use                                             + Input</span>
+  <span class="token comment">//</span>
+  <span class="token comment">// Out-of-line storage of input lists is needed if appending an input to</span>
+  <span class="token comment">// a node exceeds the maximum inline capacity.</span>
+</code></pre>
+<p>当inputr&lt;=kMaxInlineCapacity时，就会进入以下分支采取Inline模式，此模式下use、node、input内存地址连续。<br>
+<img src="https://img-blog.csdnimg.cn/75051b79fc2a43bcac95103c006b5802.png" alt="在这里插入图片描述"><br>
+然后会开始初始化input与use<br>
+<img src="https://img-blog.csdnimg.cn/cbdb4710e72a4c3dba42ef7ab5f1429c.png" alt="在这里插入图片描述"><br>
+当第一次执行循环时current为0，执行完<code>inpu_ptr[current] = to</code>后node布局，红色部分就是放入的to也就是input：<br>
+<img src="https://img-blog.csdnimg.cn/4758e4a0083c43f787dd83ae385a37ab.png" alt="在这里插入图片描述"><br>
+当执行完<code>Use* use = use_Ptr - 1 -current</code>后use等于node - 0x18 - current，0x18是Use类对象的大小<br>
+<img src="https://img-blog.csdnimg.cn/e36812b47bb64240abce6cff17454418.png" alt="在这里插入图片描述"><br>
+最后会去执行<code>to-&gt;AppendUse(use)</code>，AppendUse函数会将first_use地址放入use-&gt;next位置，最后再将use放入first_use_字段位置，此处操作实际上就是更新了use链表的头，use对象实际上是一个链表，通过Use::next与Use::prev两个指针连接。<br>
+<img src="https://img-blog.csdnimg.cn/b109ac92c7674d67b6e8cfab0d4a656b.png" alt="在这里插入图片描述"><br>
+当通过Use来查找input时，会先通过input_index函数来获取相应input的下标，随后通过当前use+1+index的方式来找到node此node地址就是inputs数组的起始地址，最后再通过inputs和index来查找对应的input。<br>
+<img src="https://img-blog.csdnimg.cn/f0b28335173c4688ba44f95e06c9a0f6.png" alt="在这里插入图片描述"><br>
+input_index函数会通过InputIndexField::decode函数来解析bit_field_字段来获取input_index<br>
+<img src="https://img-blog.csdnimg.cn/f042d35899944a20a3082c4b241e7088.png" alt="在这里插入图片描述"></p>
+<h2><a id="Use_71"></a>Use</h2>
+<p>前面提到过use对象，此处对该对象再详细说明一下，use主要用来获取input。节点｛n｝的每个input｛i｝都有一个关联的｛Use｝，这两者可以相互获取对方。当创建某个节点时并不会为节点自身初始化use，只会将node地址-1-index处的地址作为其input的use，但是当在处理之后的node时之前处理过的node有可能会成为当前正在处理的node的input，此时再为之前处理过的node初始化use，之所以会将node - 1 -index的地址作为use，主要目的是为了标记此节点分别是哪些节点的input之前提到过use与布局在节点后面的input是对应可以互相查找的，同时利用这种机制也可以找到当前节点作为input时它的node都有哪些。<br>
+以某个input_count为6的node为例：<br>
+<img src="https://img-blog.csdnimg.cn/50395b2745da46f7831ec7aa24603e5b.png" alt="在这里插入图片描述"><br>
+此时input_ptr为node+sizeof(node)<br>
+<img src="https://img-blog.csdnimg.cn/455e6834afad4d508c6b1bcdc8c0986f.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/14ab3c68b1ad419484d25dd873c633ac.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/6c459671e1fa4c508da76403797b1fbb.png" alt="在这里插入图片描述"><img src="https://img-blog.csdnimg.cn/b99e11b2eebd41cd850e5d7e2aad0bfd.png" alt="在这里插入图片描述"><br>
+也就是说input指针会从node+0x20处开始保存<br>
+<img src="https://img-blog.csdnimg.cn/6ba9609ab9ca4870aa860b105ef3d975.png" alt="在这里插入图片描述"><br>
+随后会通过use_ptr - 1 - index来作为use对象的地址，要注意的是在c++中指针-1并非真的是指针地址-1，而是指针地址减去一个指针类型大小，例如此处use_ptr与node为同一个地址，但是经过强制类型转换变为了use类型，use对象大小为0x18所以此处use_ptr - 1时实际上是减去了0x18，对于index也是一样，当计算第一个input的use时实际上是use_ptr - 1 - 0。<br>
+<img src="https://img-blog.csdnimg.cn/cfed4480c47b4c4fa95a51844e3117f7.png" alt="在这里插入图片描述"><br>
+随后将use保存到input-&gt;first_use中<br>
+<img src="https://img-blog.csdnimg.cn/bbfe5a7a50b4467bacb4c3b25e1e45ac.png" alt="在这里插入图片描述"><br>
+计算第二个input的use时就是use_ptr - 1 - 1，然后继续通过以上方法再把use保存到input-&gt;first_use中，其余的use也是类似的计算方法。<br>
+<img src="https://img-blog.csdnimg.cn/a523dc7e39954de992c1e2a895fb6552.png" alt="在这里插入图片描述"><br>
+也就是说当通过input查找use时直接获取input-&gt;first_use字段即可，而通过use获取input时就需要前面提到过的input_ptr函数。<br>
+Use对象除了能用input_ptr来获取input对象外还能通过from函数来获取node对象：<br>
+<img src="https://img-blog.csdnimg.cn/1cf7860414bb4d49a9f5d0dadadf295f.png" alt="在这里插入图片描述"><br>
+use类里还定义了InlineField与InputIndexField两个别名，这两个别名主要用来获取inline标记与Input_Index:<br>
+<img src="https://img-blog.csdnimg.cn/af936903fdc14d0f9139312a1fcf007f.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/6f5a397b4b37445a9e19e2e1dfb16c33.png" alt="在这里插入图片描述"><br>
+之后当在处理后续节点的时候前面处理过的节点就会变成input，再通过同样的办法进行初始化first_use，而很多时候一个node有可能会是多个其他node的input，而node自身有可能会有多个input，在获取自己的input时直接获取即可，在获取依赖于自己的node时，就需要通过use来获取如此一来当前节点上下的节点就都可以获取到了。</p>
+<p>通过图来说明，当在处理节点7时，它会将节点5、12、0当作input，并分别为5、12、0设置use这是为了方便它们三个在处理时可以找到节点7(这并不意味着这三个节点就只有节点7这一个use)，之后当在处理节点27时他就会为节点7初始化use，节点42也会为7初始化一个新的use，节点30也同样，节点27为7初始化的use保存在节点7的<code>node-&gt;first_use</code>，节点42创建的use保存在节点7的<code>node-&gt;first_use-&gt;next</code>，节点30创建的use保存在节点7的<code>node-&gt;first_use-&gt;next-&gt;next</code>。<br>
+<img src="https://img-blog.csdnimg.cn/87ad4697df2c467a90fd8cd4f44d1023.png" alt="在这里插入图片描述"><br>
+相应的既然一个节点可能会有多个use那肯定会有数量计算寒素<br>
+<img src="https://img-blog.csdnimg.cn/73486e6d342347f5beecd91f41ddb6a8.png" alt="在这里插入图片描述"><br>
+此部分比较烧脑建议结合IR图、代码、调试去尝试理解。</p>
+<h2><a id="Edge_100"></a>Edge</h2>
+<p>edge类是一种用于与单个use_node作为另一node的输入相关联的信息的封装。<br>
+通常在使用此类的时候往往会通过input_edge或是use_edge函数来迭代获取edge对象，类似于以下形式：<br>
+<img src="https://img-blog.csdnimg.cn/98b817328c204193b68bdce9a1c39b16.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/5cd3f4e494f4461fbd9ccdcf08162ae1.png" alt="在这里插入图片描述"><br>
+edge类中有两个比较重要的函数：to和from，这两个函数分别用于获取边(edge)两端的节点。<br>
+<img src="https://img-blog.csdnimg.cn/fd5158c55a054cf6b125a3e6ec1ff959.png" alt="在这里插入图片描述"><br>
+通过input_edges与use_edges函数获取的edge to与from函数得到的节点不一样，通过node.input_edge函数获取的edge对象，from函数获取的是node自身。<br>
+<img src="https://img-blog.csdnimg.cn/7200133fee2e45e4b56af9207b0881ba.png" alt="在这里插入图片描述"><br>
+而通过node.use_edge函数获取的edge对象，to函数获取的是node自身。<br>
+<img src="https://img-blog.csdnimg.cn/e9aceab1819544108283c9488b72d021.png" alt="在这里插入图片描述"><br>
+之所以会出现不一样的情况主要是由于它们两者表示的边并不相同，举例来讲，以下图为例(此图为了能更明确的表达所以只有两条边但实际情况往往都有多条边)，其中绿色部分的边需要通过input_edges函数来获取，红色部分的边需要用use_edges函数来获取，也就是说input_edges与use_edges分别表示节点输入与输出两部分的边。<br>
+<img src="https://img-blog.csdnimg.cn/4f4920cec4a44b09aa1ffb00f1c68ad9.png" alt="在这里插入图片描述"><br>
+通过以上结论可知对于end节点来讲应该是只有input_edges而没有use_edges的，通过调试器来进行验证：<br>
+<img src="https://img-blog.csdnimg.cn/be77622d30204ec9bfd09df0e5e778c5.png" alt="在这里插入图片描述"><br>
+end节点往往只有一个input，那就是return节点，所以可以确认是正确的，而start节点正好相反只有use_edges而没有input_edges：<br>
+<img src="https://img-blog.csdnimg.cn/39a2ce0f27d347b6861eb6288fefa28a.png" alt="在这里插入图片描述"><br>
+同时也能通过代码来验证，Input_edges在返回迭代器时会先判断是outline还是inline，随后将相应的参数传进去初始化InputEdges对象并返回<br>
+<img src="https://img-blog.csdnimg.cn/f99f88511d254e71b6190d19fbcaab2e.png" alt="在这里插入图片描述"><br>
+在InputEdges对象的构造函数定义中它会将传入的input指针最为input_root，node-1作为use_root，在这种情况下node还是node，node的input还是它的input：<br>
+<img src="https://img-blog.csdnimg.cn/4beb85ff94c0402bbb54a91548a084e9.png" alt="在这里插入图片描述"><br>
+而use_edges在返回迭代器时，会直接将node传入UseEdges的构造函数并且依然用它来初始化UseEdges::node_成员<br>
+<img src="https://img-blog.csdnimg.cn/35aceab115fe4df181da4f26a11915c9.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/25a9e2bc3a914fcdba88e7276ea63a89.png" alt="在这里插入图片描述"><br>
+在UseEdges::begin函数实现中他会用node_成员作为参数传入迭代器构造函数中，迭代器构造函数会将node-&gt;first_use作为current也就是说他是的时会将传入的node作为use去查找依赖于它的node。<br>
+<img src="https://img-blog.csdnimg.cn/bb16ee032cad423592af422a0a183739.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/438935226e1741a89a1d01355d218b2d.png" alt="在这里插入图片描述"></p>
+</div>
+</body>
+
+</html>

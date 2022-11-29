@@ -1,0 +1,178 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chrome代码分析(二)——EscapeAnalysisPhase</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><p><a href="https://source.chromium.org/chromium/chromium/src/+/main:v8/src/compiler/pipeline.cc;l=1581;bpv=1;bpt=1?q=EscapeAnalysisPh&amp;ss=chromium/chromium/src">Chromium Code</a></p>
+<h1><a id="EscapeAnalysis_1"></a>EscapeAnalysis</h1>
+<p>当v8在处理js代码时通常会将其转化为字节码进行执行，在遇到热点函数时会用Turbofan将其优化转换为JIT代码来执行以此来提高代码执行效率，Turbofan使用了“Sea of Nodes”的概念它将对象及其一些操作与控制流视作节点(node)然后由这些节点组成图，当Turbofan生成机器码时会先进行优化，优化有多个阶段每个阶段会针对这些节点进行优化将不必要的冗余节点优化简略，EscapeAnalysis(逃逸分析)就是众多阶段之一。<br>
+逃逸分析总结来讲就是用来分析js代码中产生对象作用域的一种机制，假设有以下代码：</p>
+<pre><code class="prism language-js"><span class="token keyword">function</span> <span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+	<span class="token keyword">let</span> a <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token literal-property property">x</span><span class="token operator">:</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token literal-property property">y</span><span class="token operator">:</span><span class="token number">1</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+	<span class="token keyword">return</span> a<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+<span class="token keyword">let</span> b <span class="token operator">=</span> <span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>此代码中的对象a就属于逃逸对象，由于逃逸对象在函数执行完毕后不会被回收所以逃逸分析阶段不会去优化简略逃逸对象。对代码进行一些修改：</p>
+<pre><code class="prism language-js"><span class="token keyword">function</span> <span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+	<span class="token keyword">let</span> a <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token literal-property property">x</span><span class="token operator">:</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token literal-property property">y</span><span class="token operator">:</span><span class="token number">1</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+	a<span class="token punctuation">.</span>x <span class="token operator">=</span> a<span class="token punctuation">.</span>x <span class="token operator">+</span> a<span class="token punctuation">.</span>y<span class="token punctuation">;</span>
+	<span class="token keyword">return</span> a<span class="token punctuation">.</span>x <span class="token operator">*</span> a<span class="token punctuation">.</span>y<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+<span class="token keyword">let</span> b <span class="token operator">=</span> <span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>以上代码经过优化后等同于：</p>
+<pre><code class="prism language-js"><span class="token keyword">function</span> <span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+	<span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token number">0</span> <span class="token operator">+</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token operator">*</span><span class="token number">1</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+<span class="token keyword">let</span> b <span class="token operator">=</span> <span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>IR图：<br>
+<img src="https://img-blog.csdnimg.cn/cf19ec6a3f6440e0a72e6fbadd4ee740.png" alt="在这里插入图片描述"><br>
+对于以上代码由于对象a未逃逸其作用域仅限于函数内所以将其优化删除。</p>
+<h1><a id="_30"></a>逻辑代码分析</h1>
+<h2><a id="_31"></a>逻辑流程</h2>
+<p>逃逸分析阶段代码逻辑大致分为三步：</p>
+<pre><code>EscapeAnalysis====&gt;EscapeAnalysisResult====&gt;EscapeAnalysisReducer
+</code></pre>
+<ul>
+<li>EscapeAnalysis：执行逃逸分析算法逻辑，负责标记节点是否为逃逸(escaped_)。</li>
+<li>EscapeAnalysisResult：保存逃逸分析结果，EscapeAnalysisTracker的包装类，里面保存逃逸的节点。</li>
+<li>EscapeAnalysisReducer：将逃逸分析结果应用到图中(Node Graph)，将非逃逸对象从图中删除实际上就是将节点从图中孤立出来，将其value置为其node本身再将其effect和control都置为nullptr。</li>
+</ul>
+<h2><a id="EscapeAnalysis_39"></a>EscapeAnalysis</h2>
+<p>此阶段从EscapeAnalysisPhase::Run函数开始：<br>
+<img src="https://img-blog.csdnimg.cn/9ff7451467da4133aa0e842735950a10.png" alt="在这里插入图片描述"><br>
+先创建EscapeAnalysis对象，EscapeAnalysis构造函数中主要就是用函数参数来初始化结构成员。<br>
+<img src="https://img-blog.csdnimg.cn/53bbaf217d39422bb040c5cc145cf2f1.png" alt="在这里插入图片描述"><br>
+随后执行ReduceGraph函数，ReduceGraph会去调用ReduceFrom函数并将图中根节点传入：<br>
+<img src="https://img-blog.csdnimg.cn/5165c8698dc744fc96a0da8289fc303e.png" alt="在这里插入图片描述"><br>
+此处涉及到一个graph对象，此对象是图对象，该对象通过end函数可以获取到图中末尾的end节点，同时对应的还有一个start函数用于获取获取start节点，一个zone函数获取zone对象。<br>
+<img src="https://img-blog.csdnimg.cn/14fc2e180c4f42c7bb0d562d5d7058a9.png" alt="在这里插入图片描述"><br>
+ReduceFrom函数采用<a href="https://zhuanlan.zhihu.com/p/511742911">DFS</a>(深度优先)算法从根节点开始遍历图：<br>
+<img src="https://img-blog.csdnimg.cn/d1f0ac9768da44719025822447a5e50c.png" alt="在这里插入图片描述"><br>
+先将根节点压入栈中，当栈不为空时去判断其input_index是否小于当前节点子节点个数，input_index为当前节点所依赖节点的下标，假设当前节点有两个子节点那该节点就有两个依赖节点，左子节点index为0，右子节点为1。随后根据input_index来获取依赖节点并将input_index+1以便处理下一个依赖节点。<br>
+<img src="https://img-blog.csdnimg.cn/ff1b43dabecd4462a88e814f23e2a5a0.png" alt="在这里插入图片描述"><br>
+随后是一个switch，此开关语句通过节点state来判断如何处理input，当为前两个分支时不做处理原因在注释中说明，当为后两个分支时先将input状态置为kOnStack表示当前节点已在栈中，然后将input压入栈以便在下一次循环时访问当前input的依赖子节点进行处理。<br>
+<img src="https://img-blog.csdnimg.cn/b815c203867d4338af113e8987f64e43.png" alt="在这里插入图片描述"><br>
+随后按照循环继续运行，当当前节点的依赖节点都遍历完后，就会进行优化处理，先将节点从栈中弹出，随后进入相应的reduce函数对节点进行优化分析处理。<br>
+<img src="https://img-blog.csdnimg.cn/75a1b8d8383642c1b85da839d9e50fd5.png" alt="在这里插入图片描述"><br>
+执行完优化分析后再通过use_edges函数获取输出边并处理此边(edge)，关于use_edges函数可查看<a href="https://blog.csdn.net/weixin_43815930/article/details/127566113?csdn_share_tail=%7B%22type%22:%22blog%22,%22rType%22:%22article%22,%22rId%22:%22127566113%22,%22source%22:%22weixin_43815930%22%7D">node结构分析</a>中关于edge边的部分，之后通过边来调用from函数获取依赖于current节点的的节点，也就是把current节点作为input的节点。随后判断edge是否是效果边，如果是就在去判断effect_changed_标记是否为真，如果为真的话就表示需要重新进行访问处理，所以就需要调用Revisit函数将use节点状态设为kVisited，如果不为效果边就默认视为值边，并判断value_changed_标记是否为真，如果为真就将use节点状态设为kVisited与效果边处理相同。<br>
+<img src="https://img-blog.csdnimg.cn/7668b295fc074c12889ce4bbd199c1ed.png" alt="在这里插入图片描述">然后再来回头看看相应的优化分析处理函数观察其定义可以看出是一个函数指针<img src="https://img-blog.csdnimg.cn/e0b64ec717ff448b97aec87a26333da0.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/f3f5f2074856454cab7d4b4739e1b6c6.png" alt="在这里插入图片描述"><br>
+通过调试可知此处实际会去调用EscapeAnalysis::Reduce函数，此函数先获取节点的op_，然后用node与reduction初始化EscapeAnalysisTracker::Scope对象，最后再去调用ReduceNode函数：<br>
+<img src="https://img-blog.csdnimg.cn/409329ac260c4e6985128770a0c4b822.png" alt="在这里插入图片描述"><br>
+ReduceNode函数会根据节点的opcode进行相应的处理。<br>
+<img src="https://img-blog.csdnimg.cn/dccc3ed7883b4744af2f104dee9e66ae.png" alt="在这里插入图片描述"><br>
+ReduceNode函数的一个主要作用就是通过一些条件去分析判断节点是否是逃逸的，如果是就调用setEscaped函数将其相关的一些节点的VirtualObject标记为逃逸。<br>
+<img src="https://img-blog.csdnimg.cn/e5a415e865d14b0daa71376a8210eccd.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/ad4f5b8e2d054578bd3f66fc31c2ebfc.png" alt="在这里插入图片描述"><br>
+当然对于一些特殊的节点也会有一些特殊的操作，由于节点类型比较多此处不去一一的说明分析。此处就以Allocate节点为例来进行说明，此节点主要处理对象创建，所有创建的对象都先会通过Allocate节点处理分支为其分配临时内存，具体的处理函数就是InitVirtualObject，对于刚通过allocate节点分配的临时内存先用Dead节点进行初始化，在后期的节点处理分支中会为分配的临时内存设置具体的节点并决定是否将其设为逃逸：<br>
+<img src="https://img-blog.csdnimg.cn/acc5c93943704bcd9f4e51e640aa0ae6.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/fff637a7059747bd853a2f0433b881cb.png" alt="在这里插入图片描述"></p>
+<h2><a id="EscapeAnalysisResult_69"></a>EscapeAnalysisResult</h2>
+<p>至此就执行完了逃逸分析的算法流程，分析完的结果会通过一个EscapeAnalysisResult对象返回，EscapeAnalysisResult对象实际上就是tracker的封装类：<br>
+<img src="https://img-blog.csdnimg.cn/3cd5051c035941e4b4dacf542c5dad73.png" alt="在这里插入图片描述"><br>
+tracker对象在EscapeAnalysis对象创建时创建并初始化：<br>
+<img src="https://img-blog.csdnimg.cn/b9f42e3ca65a46c2a95c17f7b03cf4d1.png" alt="在这里插入图片描述"><br>
+也就是说实际的分析结果保存在tracker对象中。<br>
+<img src="https://img-blog.csdnimg.cn/c0529c3d15a845e29585f08830c075bb.png" alt="在这里插入图片描述"></p>
+<h2><a id="EscapeAnalysisReducer_76"></a>EscapeAnalysisReducer</h2>
+<p>逃逸分析完成后会去创建GraphReducer与EscapeAnalysisReducer对象，GraphReducer对象用于操作图将优化应用到图中，EscapeAnalysisReducer对象用于保存各项用于优化的各项数据例如EscapeAnalysisResult。<br>
+<img src="https://img-blog.csdnimg.cn/88ad7e7eb0d44b2db523bc1cb6a31a00.png" alt="在这里插入图片描述"><br>
+之后会去调用AddReducer函数：<br>
+<img src="https://img-blog.csdnimg.cn/146677e0bd9b4ab9bf181e0087504745.png" alt="在这里插入图片描述"><br>
+该函数会再去调用GraphReducer对象的成员函数AddReducer:<br>
+<img src="https://img-blog.csdnimg.cn/dffcb2a1d4b94d5eae7d4e7be047138e.png" alt="在这里插入图片描述">GraphReducer::AddReducer函数将escape_reducer优化对象压入GraphReducer的优化列表：<br>
+<img src="https://img-blog.csdnimg.cn/5761554189f44c8c8b4d296ae07cb784.png" alt="在这里插入图片描述"><br>
+随后会去调用GraphReducer::ReduceGraph函数，GraphReducer::ReduceGraph会去调用GraphReducer::ReduceNode函数并将图中的末尾根节点传入:<br>
+<img src="https://img-blog.csdnimg.cn/d4ea533bf00145c8b8c5e72898d37688.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/732d5b4e3fd04badbb6b33e469862a51.png" alt="在这里插入图片描述"><br>
+ReduceNode函数也会去遍历图中节点，与前面的ReduceFrom函数一样也使用DFS算法进行遍历处理的逻辑也基本一致：<br>
+<img src="https://img-blog.csdnimg.cn/be5df0cd528447ca97bb15bd14aef808.png" alt="在这里插入图片描述"><br>
+先将末尾节点压入栈，随后进入循环，当节点处理栈不为空时去执行ReduceTop函数此函数主要用来对图进行操作此函数比较重要先简单略过，详细说明会放在后面：<br>
+<img src="https://img-blog.csdnimg.cn/f5cebe80064343d2b52a0365ca884a3f.png" alt="在这里插入图片描述"><br>
+继续往下当栈为空时先判断用于存放需要重新访问的节点的列表(revisit_)是否为空，如果不为空就需要再去判断节点状态是否为kRevisit，如果是就将其压入节点处理栈，并将节点从revisit_列表中弹出：<br>
+<img src="https://img-blog.csdnimg.cn/8dc0d8191bb943f0943842889587d904.png" alt="在这里插入图片描述"><br>
+当节点处理栈与revisit_列表都为空时，说明所有节点都已经处理完毕，然后获取在前面通过AddReducer函数压入优化列表的Reducer对象，由于该阶段是逃逸分析阶段所以此处获取到的应该是EscapeAnalysisReducer对象，然后去调用EscapeAnalysisReducer对象的成员函数Finalize:<br>
+<img src="https://img-blog.csdnimg.cn/b0019481dc5b4641804d8d89824cfc88.png" alt="在这里插入图片描述"><br>
+通过代码可知此函数主要用于处理ArgumentsElements节点，搜先会去遍历获取收录在arguments_elements_列表里的所有ArgumentsElements节点并将其保存在node中，如果node的第一个(index为0)input不为kArgumentsLength就阻断后续步骤的执行重新循环，如果是就获取到arguments_length节点继续执行：<br>
+<img src="https://img-blog.csdnimg.cn/dfd73efc3a064cfd8a498dcc99b3150e.png" alt="在这里插入图片描述"><br>
+如果是ArgumentsLength就去遍历获取ArgumentsLength节点的所有use边，然后对每条边都会先通过from函数获取依赖此节点的节点，此处姑且就将其称为output当然这种叫法并不是很正确，然后判断其output是否是指定的几个类型，如果是就将arguments_length节点更新为ArgumentsLengthState节点。<br>
+<img src="https://img-blog.csdnimg.cn/adc4ba4c81194175babec0adf79ec912.png" alt="在这里插入图片描述"><br>
+之后依然是去获取所有的use边，只不过是ArgumentsEelement节点node的所有use边：<br>
+<img src="https://img-blog.csdnimg.cn/ee7744a9b7b1435ab4f2d1c8782f9955.png" alt="在这里插入图片描述"><br>
+随后依然通过from函数获取所有依赖于ArgumentsEelement node的节点，此处将该节点也成为output，随后判断当前edge是否是value edge或者是否不为空，如果不是value edge或者edge为空的话就阻断后续流程获取下一个edge。<br>
+<img src="https://img-blog.csdnimg.cn/352d06a467554094a6c06d7792e220f1.png" alt="在这里插入图片描述"><br>
+如果流程不被阻断的话就会根据output的op进入不同的分支进行处理，这些分支的处理主要目的就是为了将需要优化的节点放入loads列表中，对于StateValues、TypedStateValue、ObjectState、TypedObjectState节点不做处理，对于LoadElement节点会先去判断其mapped_count是否为0，mapped_count大致就是用来标记节点的引用次数，如果是就说明此节点不再被使用就将其放入loads列表中以备之后将其优化，否则就将escaping_use设为true表示不能将此节点优化或者删除，对于LoadField节点先获取字段的访问描述符再通过该描述符获取offset并于FixedArray::kLengthOffset进行比较，如果相同就代表需要将节点存入loads列表中，否则就将escaping_use设为true，对于其他节点一律将escaping_use设为true：<br>
+<img src="https://img-blog.csdnimg.cn/997b38c3288d462284d8956f2fc78741.png" alt="在这里插入图片描述"><br>
+然后去判断escaping_use标志，当为false时先创建ArgumentsElementsState节点，并用ArgumentsElementsState节点去替换node也就是ArgumentsElements节点：<br>
+<img src="https://img-blog.csdnimg.cn/cf22dc4e47ba4a61b43d3b7a8943210f.png" alt="在这里插入图片描述"><br>
+然后通过循环从loads列表中去除需要处理的节点，并根据节点的opcode进入不同的分支进行处理：<br>
+<img src="https://img-blog.csdnimg.cn/6cd7116017a04aeb9f691ed60613d53a.png" alt="在这里插入图片描述"><br>
+当load为LoadField节点时，就获取之前获取过的ArgumentsLength节点，并用ArgumentsLength节点去替换LoadField节点并将LoadField节点从图中去除：<br>
+<img src="https://img-blog.csdnimg.cn/aa860bc2d4924ac0a1dd373dcfb9ed8f.png" alt="在这里插入图片描述"><br>
+当load为LoadElements节点时，将LoadElements节点替换为LoadStackArgument节点，并将第一个与第二个input分别替换为ExternalPointer与用NumberAdd函数获取的推测值<br>
+<img src="https://img-blog.csdnimg.cn/b246e1807da14e04ba92ad52ffbef625.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/c56f76e774a84554b36849fed62179d7.png" alt="在这里插入图片描述"><br>
+当EscapeAnalysisReducer::Finalize()函数执行结束后 GraphReducer::ReduceNode函数的一次循环流程就结束了，当revisit_列表为空就说明没有需要处理的节点了需要跳出循环结束流程，如果不为空就进行下一次循环去访问处理需要重新访问的节点：<br>
+<img src="https://img-blog.csdnimg.cn/28e3aad511584e16a490231195b5e12f.png" alt="在这里插入图片描述"><br>
+然后再回头再去看ReduceTop函数，该函数是在GraphReducer::ReduceNode函数中具体处理节点的函数，ReduceNode函数先从栈顶取出要处理的节点entry，再根据entry.node获取到要处理的节点node，如果此节点为Dead节点那就不做处理直接从栈中弹出：<br>
+<img src="https://img-blog.csdnimg.cn/ec299aa5e7fc4722aced5a2c87c0c0f8.png" alt="在这里插入图片描述"><br>
+如果不为dead节点就继续执行，首先获取节点所有的input，entry.input_index是在push节点时被初始化的，在push后直接调用此值应该为0，然后判断该值是否大于node的输入节点个数，如果大于或等于就将start置为0，否则将直接获取entry.input_index赋值给start。<br>
+<img src="https://img-blog.csdnimg.cn/3273fb17fc7549d888fd69ee54aa2181.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/0a80cad2f9b7479dabb01507dc5222a3.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/8456f5235d8348c091c4d6d37fa42b6c.png" alt="在这里插入图片描述"><br>
+随后以start为基数，node input个数为上限值开始循环处理input，主要处理方式就是判断input是否不等于node，并且input是否可以进行递归处理，如果可以就将entry.input_index+1然后返回到GraphReducer::ReduceNode函数进行下一轮节点遍历处理：<br>
+<img src="https://img-blog.csdnimg.cn/9f1abb4bd6264e12a64e32b20041f892.png" alt="在这里插入图片描述"><img src="https://img-blog.csdnimg.cn/914d559fa42543718ad7057ec406e60b.png" alt="在这里插入图片描述"><br>
+递归判断函数Recurse定义如下，当传入的node状态不等于kOnStack与kVisited时就将node压入节点处理栈中以便在下一轮节点处理循环中处理该节，然后返回true代表可以递归处理，否则直接返回false代表不可递归处理：<br>
+<img src="https://img-blog.csdnimg.cn/adf7f74cbd624793987ec0b9b3a64853.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/4dc7ce02b575448d9f3ae80526a33562.png" alt="在这里插入图片描述"><br>
+随后再以0为基数，start为上限值判断input是否可递归，此处处理与上一处循环处理原理一致主要是为了防止当entry.input_index&gt;0时在此下标之前有漏检的节点：<br>
+<img src="https://img-blog.csdnimg.cn/f4a4c353a3a945ff92691a14df032f2b.png" alt="在这里插入图片描述"><br>
+然后通过图中所有节点数-1得到max_id，再去调用GraphReducer::Reduce函数执行优化，最后检查是否有减少节点，如果没有就将节点弹出：<br>
+<img src="https://img-blog.csdnimg.cn/0ec3c5b5916d466aa6171f5366f0308f.png" alt="在这里插入图片描述"><br>
+GraphReducer::Reduce函数会将优化列表的末尾元素设为需要跳过的优化，随后循环获取并传入node以及node监视器进行执行优化，此处传入的node是节点处理栈栈顶的一个节点：<br>
+<img src="https://img-blog.csdnimg.cn/e828ee082ca846a6bac276f9b84db3f7.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/e90d160b43284a2980ce26d6b89c1ee1.png" alt="在这里插入图片描述"><br>
+这其中会获取到EscapeAnalysisReducer::Reduce函数执行优化，此函数会先获取node的replacement，replacement是node的替换节点，所以如果replacement不为空就用replacement替换node：<br>
+<img src="https://img-blog.csdnimg.cn/49ecd912856048cabebf1165ef5bfff9.png" alt="在这里插入图片描述"><br>
+replacement如果为空就继续执行，用node-&gt;op_来获取节点类型，再根据类型对不同节点进行处理，此处只对Allocate、TypeGuard、FinishRegion、NewArgumentsElements节点进行处理，其余节点默认都为FrameState节点：<br>
+<img src="https://img-blog.csdnimg.cn/c9474965e9024c35996705cc615fac30.png" alt="在这里插入图片描述"><br>
+通常情况下Allocate节点与FinishRegion节点是相互关联的，Allocate只有一个output那就是FinishRegion：<br>
+<img src="https://img-blog.csdnimg.cn/26fd2c8688af4a618efe0ead202fda13.png" alt="在这里插入图片描述"><br>
+当EscapeAnalysisReducer::Reduce函数遇到Allocate或TypeGuard节点时会先判断其是否时逃逸节点并且为其分配了临时内存，如果是非逃逸且分配了临时内存那就放松allocate节点，使allocate节点不可达：<br>
+<img src="https://img-blog.csdnimg.cn/5503d77c8ad446ee8cb60dcc668a54aa.png" alt="在这里插入图片描述"><br>
+当遇到FinishRegion节点时先获取FinishRegion节点的效果输入节点，如果effect node是BeginRegion节点就将FinishRegion与BeginRegion节点都放松：<br>
+<img src="https://img-blog.csdnimg.cn/001d4dd6b58545b09b0244a5db87cad0.png" alt="在这里插入图片描述"><br>
+如果node是NewArgumentsElements节点就将node插入argumrnts_elements_列表中：<br>
+<img src="https://img-blog.csdnimg.cn/c46d9aa00c994d71a4cf882a47747f0d.png" alt="在这里插入图片描述"><br>
+其余节点一律进入ReduceFrameStateInputs()函数对FrameState节点进行优化缩减<br>
+<img src="https://img-blog.csdnimg.cn/a81f90ca2a4c47278c5ec16113a61abc.png" alt="在这里插入图片描述"><br>
+ReduceFrameStateInputs函数会遍历获取node的输入节点，随后判断输入节点是否是FrameState节点，如果是那就先初始化Deduplicator对象，该对象用于识别FrameState树中重复出现的VirtualObject对象：<br>
+<img src="https://img-blog.csdnimg.cn/0150443b40e94077a570753257eb7f4e.png" alt="在这里插入图片描述"><br>
+随后进入ReduceDeoptState函数获取用于替换FrameState的新节点，此函数会先检查节点是否是FrameState，如果是就通过循环按照列表中的顺序获取相应的input_index，然后根据input_index获取FrameState的相应Input节点然后再进递归执行重新执行ReduceDeoptState函数获取用于替换FrameState input的节点：<br>
+<img src="https://img-blog.csdnimg.cn/28d80da65e2b425b9777233c31d0e8c8.png" alt="在这里插入图片描述"><br>
+当传入的node不是FrameState节点时，也就是当传入的是FrameState的input节点时会先去判断是否是SateValue节点，在处理SateValue节点时会先获取其所有value输入节点随后继续递归ReduceDeoptState函数获取替换节点，随后用于替换StateValue的value输入节点<br>
+<img src="https://img-blog.csdnimg.cn/92548457334e48ee87ec467a48db9393.png" alt="在这里插入图片描述"><br>
+FrameState节点及其输入节点可以简单视为一个子树，FrameState节点为根节点，而ReduceDeoptState函数就是用于处理该子树在遍历算法上也使用DFS，前两个if分支，第一个if分支用于处理子树的根节点也就是FrameState节点，第二个if分支用于处理FrameSate的StateValue输入节点，当执行至第三个if分支时意味着ReduceDeoptState函数已遍历完了FrameState节点与StateValue节点要开始处理StateValue节点的input节点，首先要获取节点的vobject，在获取vobject时会调用SkipValueIdentities函数：<br>
+<img src="https://img-blog.csdnimg.cn/96afeb6c64304502868c3cdc68ba8dac.png" alt="在这里插入图片描述"><br>
+SkipValueIdentities函数用于跳过value input，实际上就是当遇到的是TypeGuard与FoldConstant节点时就跳过获取其input：<br>
+<img src="https://img-blog.csdnimg.cn/eb91f51269364055bc7335dd23090195.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/8454ee545cfc4b03bdbe7b230a103d80.png" alt="在这里插入图片描述"><br>
+获取到vobject对象后如果不为空，先判断是否是逃逸对象如果是逃逸对象那就直接返回节点，否则就去调用SeenBefore函数查找缓存中是否存在存在说明为重复的虚拟对象直接从缓存中获取并返回相应节点，如果之前的条件都不满足就循环获取vobject的各字段节点，最后如果不为dead节点就继续递归ReduceDeoptState函数处理获取替换节点，最后将得到的节点压入input列表，再根据input列表创建新的节点并返回，关于FrameState节点的缩减操作递归调用较多需要结合调试进行分析：<br>
+<img src="https://img-blog.csdnimg.cn/bbab7112ff9843319d4c337d2d8bec1e.png" alt="在这里插入图片描述"><br>
+在通过一些善后处理后(例如：Changed、NoChange、Pop没有什么需要特别说明)最后回退至EscapeAnlysisPhase::Run函数，该函数最后一步调用EscapeAnalysisReducer::VerifyReplacement函数对本阶段的一些主要功能的执行结果进行检查，检查的主要内容获取图中所有节点，并逐个访问确保将存在未逃逸对象的Allocate节点及其VirtualObject对象已经被删除，如果检查失败直接报错：<br>
+<img src="https://img-blog.csdnimg.cn/aa121bdf577b46ac81751c95746cec2d.png" alt="在这里插入图片描述"></p>
+<h1><a id="_163"></a>总结</h1>
+<p>本阶段最主要的功能就是检查对象是否为逃逸，将逃逸对象保留的同时将未逃逸的对象删除，除此之外此阶段还会将一些不必要的节点简化或替换为其他节点。</p>
+</div>
+</body>
+
+</html>

