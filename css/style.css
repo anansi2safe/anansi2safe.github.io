@@ -353,6 +353,7 @@ a.active {
 
 .timeline-event:hover .timeline-event-thumbnail {
     height: 150pt;
+    display:inline-block;
 }
 
 .list-arch {
