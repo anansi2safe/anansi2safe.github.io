@@ -350,7 +350,7 @@ a.active {
 }
 
 .timeline-event:hover .timeline-event-thumbnail {
-    height: auto;
+    height: 200pt;
 }
 
 .list-arch {
@@ -413,7 +413,6 @@ a.active {
     font-size: 12px;
     display: inline-block;
     margin-bottom: 1.2em;
-    padding: 0.1em 1em 0.1em 1em;
     cursor: pointer;
 }
 
