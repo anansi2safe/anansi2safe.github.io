@@ -350,7 +350,7 @@ a.active {
 }
 
 .timeline-event:hover .timeline-event-thumbnail {
-    height: 150pt;
+    height: auto;
 }
 
 .list-arch {
