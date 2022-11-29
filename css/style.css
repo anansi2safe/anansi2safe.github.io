@@ -353,7 +353,7 @@ a.active {
 
 .timeline-event:hover .timeline-event-thumbnail {
     min-height: 40pt;;
-    height: 150pt;
+    height: 200pt;
 }
 
 .list-arch {
@@ -415,7 +415,7 @@ a.active {
     color: rgb(0, 0, 0);
     font-size: 12px;
     display: inline-block;
-    margin-bottom: 0.2em;
+    margin-bottom: 1.2em;
     cursor: pointer;
     display: inline-block;
 }
