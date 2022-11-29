@@ -25,7 +25,7 @@ h4 {
     text-transform: capitalize;
     letter-spacing: 2px;
     position: relative;
-    color: #425BB5;
+    color: rgb(145, 0, 0);
     margin-left: 40px;
     font-weight: 700;
 }
@@ -37,7 +37,7 @@ h4:before {
     content: "";
     display: block;
     height: 2px;
-    background: #425BB5;
+    background: rgb(145, 0, 0);
     top: 9px;
 }
 
@@ -227,7 +227,7 @@ nav li {
 nav li a {
     text-transform: uppercase;
     letter-spacing: 2px;
-    color: #444;
+    color: rgb(145, 0, 0);
     font-size: 11px;
     font-weight: bold;
 }
@@ -242,7 +242,7 @@ nav li a {
 }
 
 a:focus {
-    color: #444;
+    color: rgb(255, 255, 255);
     text-decoration: none;
 }
 
