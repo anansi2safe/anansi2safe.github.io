@@ -4,7 +4,7 @@ function isMobile(){
       alert("sss");
       $("#home").css("background","url(../img/home2.jpg)");
     }else{
-      return false; // PC端
+      alert("lllll") // PC端
     }
 }
 
