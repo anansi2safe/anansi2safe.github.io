@@ -12,7 +12,7 @@ function PageInit(){
     let filename = getDocName();
     $("#top").html(filename.split(".")[0]);
     $("title").html(filename.split(".")[0]);
-    let uri = "./markdown/"+filename;
+    let uri = "./archive/"+filename;
     $.ajax({
         url: uri, 
         async: true, 

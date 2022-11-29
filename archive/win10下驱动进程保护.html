@@ -1,0 +1,99 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>win10下驱动进程保护</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><p>网上可以查到很多WIN7下的驱动后台进程保护代码，而那些代码在WIN10下并不适用，故写此篇来文章来总结我在编写WIN10下后台进程保护驱动程序的过程与经验,因为源码文件结构比较杂乱，在此文章里我粘部分代码，在最后再给出完整项目的github地址。</p>
+<p>首先说进程关闭，通常会用三种方法：<br>
+1.利用进程管理器关闭<br>
+2.打开CMD，调用taskkill指令关闭<br>
+3.调用taskkill加上-t参数，进行强行进程关闭</p>
+<p>在代码方面与网上其他大神在win7下的进程保护驱动的代码与思路完全一致，都是调用 ObRegisterCallbacks()回调函数</p>
+<pre><code class="prism language-cpp">OB_CALLBACK_REGISTRATION obReg<span class="token punctuation">;</span>
+	OB_OPERATION_REGISTRATION opReg<span class="token punctuation">;</span>
+
+	<span class="token function">memset</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>obReg<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>obReg<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+	obReg<span class="token punctuation">.</span>Version <span class="token operator">=</span> <span class="token function">ObGetFilterVersion</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+	obReg<span class="token punctuation">.</span>OperationRegistrationCount <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+	obReg<span class="token punctuation">.</span>RegistrationContext <span class="token operator">=</span> <span class="token constant">NULL</span><span class="token punctuation">;</span>
+	<span class="token function">RtlInitUnicodeString</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>obReg<span class="token punctuation">.</span>Altitude<span class="token punctuation">,</span> L<span class="token string">"321000"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token function">memset</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>opReg<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token keyword">sizeof</span><span class="token punctuation">(</span>opReg<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token comment">//初始化结构体变量</span>
+
+	<span class="token comment">//下面请注意这个结构体的成员字段的设置</span>
+	opReg<span class="token punctuation">.</span>ObjectType <span class="token operator">=</span> PsProcessType<span class="token punctuation">;</span>
+	opReg<span class="token punctuation">.</span>Operations <span class="token operator">=</span> OB_OPERATION_HANDLE_CREATE <span class="token operator">|</span> OB_OPERATION_HANDLE_DUPLICATE<span class="token punctuation">;</span>
+
+	opReg<span class="token punctuation">.</span>PreOperation <span class="token operator">=</span> <span class="token punctuation">(</span>POB_PRE_OPERATION_CALLBACK<span class="token punctuation">)</span><span class="token operator">&amp;</span>preCall<span class="token punctuation">;</span> <span class="token comment">//在这里注册一个回调函数指针</span>
+
+	obReg<span class="token punctuation">.</span>OperationRegistration <span class="token operator">=</span> <span class="token operator">&amp;</span>opReg<span class="token punctuation">;</span> <span class="token comment">//注意这一条语句</span>
+
+	<span class="token keyword">return</span> <span class="token function">ObRegisterCallbacks</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>obReg<span class="token punctuation">,</span> <span class="token operator">&amp;</span>obHandle<span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token comment">//在这里注册回调函数</span>
+</code></pre>
+<p>preCall回调函数定义为</p>
+<pre><code class="prism language-cpp">OB_PREOP_CALLBACK_STATUS <span class="token function">preCall</span><span class="token punctuation">(</span>PVOID RegistrationContext<span class="token punctuation">,</span> POB_PRE_OPERATION_INFORMATION pOperationInformation<span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+	<span class="token comment">//获取pid,这里的HANDLE保存的其实是一个进程pid</span>
+	HANDLE pid <span class="token operator">=</span> <span class="token function">PsGetProcessId</span><span class="token punctuation">(</span><span class="token punctuation">(</span>PEPROCESS<span class="token punctuation">)</span>pOperationInformation<span class="token operator">-&gt;</span>Object<span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token keyword">char</span> szProcName<span class="token punctuation">[</span><span class="token number">16</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">{</span> <span class="token number">0</span> <span class="token punctuation">}</span><span class="token punctuation">;</span>
+	<span class="token function">UNREFERENCED_PARAMETER</span><span class="token punctuation">(</span>RegistrationContext<span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token function">strcpy</span><span class="token punctuation">(</span>szProcName<span class="token punctuation">,</span> <span class="token function">GetProcessImageNameByProcessID</span><span class="token punctuation">(</span><span class="token punctuation">(</span>ULONG<span class="token punctuation">)</span>pid<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token comment">//比较字符串，返回0，则字符串相同</span>
+	<span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span><span class="token function">_stricmp</span><span class="token punctuation">(</span>szProcName<span class="token punctuation">,</span> <span class="token string">"Project1.exe"</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+	<span class="token punctuation">{</span>
+		<span class="token comment">//如果创建句柄</span>
+		<span class="token keyword">if</span> <span class="token punctuation">(</span>pOperationInformation<span class="token operator">-&gt;</span>Operation <span class="token operator">==</span> OB_OPERATION_HANDLE_CREATE<span class="token punctuation">)</span>
+		<span class="token punctuation">{</span>
+			<span class="token comment">//OriginalDesiredAccess为原本权限，DesiredAccess为即将要更改的新权限</span>
+			<span class="token comment">//如果要结束进程,进程管理器结束进程发送0x1001，taskkill指令结束进程发送0x0001，taskkil加/f参数结束进程发送0x1401</span>
+			<span class="token keyword">int</span> code <span class="token operator">=</span> pOperationInformation<span class="token operator">-&gt;</span>Parameters<span class="token operator">-&gt;</span>CreateHandleInformation<span class="token punctuation">.</span>OriginalDesiredAccess<span class="token punctuation">;</span>
+			<span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token punctuation">(</span>code <span class="token operator">==</span> PROCESS_TERMINATE_0<span class="token punctuation">)</span> <span class="token operator">||</span> <span class="token punctuation">(</span>code <span class="token operator">==</span> PROCESS_TERMINATE_1<span class="token punctuation">)</span> <span class="token operator">||</span> <span class="token punctuation">(</span>code <span class="token operator">==</span> PROCESS_KILL_F<span class="token punctuation">)</span><span class="token punctuation">)</span>
+				<span class="token comment">//给进程赋予新权限</span>
+				pOperationInformation<span class="token operator">-&gt;</span>Parameters<span class="token operator">-&gt;</span>CreateHandleInformation<span class="token punctuation">.</span>DesiredAccess <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span>
+			<span class="token comment">//DbgPrint("hello %x", pOperationInformation-&gt;Parameters-&gt;CreateHandleInformation.OriginalDesiredAccess);</span>
+			
+		<span class="token punctuation">}</span>
+	<span class="token punctuation">}</span>
+	<span class="token keyword">return</span> OB_PREOP_SUCCESS<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>要注意的是在这里负责获取进程名称以用于比较的函数GetProcessImageNameByProcessID为自定义的·，我会在结尾贴上代码的github地址。<br>
+看到这就会有人发现我这里的代码与网上win7下的代码别无二致，其实两者区别的关键就是三个值：<br>
+PROCESS_TERMINATE_0，<br>
+PROCESS_TERMINATE_1，<br>
+PROCESS_KILL_F<br>
+这三个值在我的自定义头文件myhead.h里是这样定义的</p>
+<pre><code class="prism language-cpp"><span class="token comment">//进程管理器结束代码</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name">PROCESS_TERMINATE_0</span>       <span class="token expression"><span class="token number">0x1001</span></span></span>
+<span class="token comment">//taskkill指令结束代码</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name">PROCESS_TERMINATE_1</span>       <span class="token expression"><span class="token number">0x0001</span> </span></span>
+<span class="token comment">//taskkill指令加/f参数强杀进程结束码</span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">define</span> <span class="token macro-name">PROCESS_KILL_F</span>			  <span class="token expression"><span class="token number">0x1401</span></span></span>
+</code></pre>
+<p>这就是我与网上win7下的代码不一样的地方，如果照搬网上win7下的代码编译后在win10下运行可能会出现被保护进程连打都打不开的现象</p>
+<p>最后，程序虽然有了一定成果，但是还有不足，有待后续的改正，首先说说成果<br>
+1.可以成功防止cmd指令taskkill -pid xxx以及<br>
+taskkill -f -pid xxx来关闭进程<br>
+(pid为9912）<br>
+效果图：<br>
+<img src="https://img-blog.csdnimg.cn/20200131000901174.PNG?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80MzgxNTkzMA==,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">从此可以看出虽然指令行反馈为成功，实际上后台进程依然在运行，再看看taskkill -f -pid<br>
+<img src="https://img-blog.csdnimg.cn/20200131001112103.PNG" alt="在这里插入图片描述">从此可以看出加上-f参数的强制关闭直接反馈拒绝访问，进程管理器的后台进程也是依然在运行的，说明没有问题<br>
+再看看进程管理器结束进程的效果，在这里我要分成两种情况，一种是直接打开win10下的进程管理器显示给我们的界面，也就是进程管理器菜单栏那一栏显示“进程”的那个页面，还有一种情况则是菜单栏显示“详细信息“的那一栏，为什么我要分为两种情况，因为我刚刚提到的不足就在这里，再“详细信息”一栏关闭程序，驱动可以正常拦截并阻止进程的关闭，而在“进程”一栏的界面直接结束进程，则会出现被保护的用户层程序突然出现CPU占用爆炸的情况CPU占用甚至可能会出现90%以上的现象，到底是为什么我也还没有搞清楚，如果有大神可以指点一二小弟感激不尽，我在后续也会继续进行调试研究，然后看效果图：<br>
+在”详细信息“一栏：<br>
+<img src="https://img-blog.csdnimg.cn/20200131002048182.PNG?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80MzgxNTkzMA==,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">可以看到弹出的拒绝访问的错误弹窗，说明是没问题的。<br>
+在“进程“一栏：<br>
+<img src="https://img-blog.csdnimg.cn/20200131002403120.PNG" alt="在这里插入图片描述"><br>
+CPU占用会高达90%，我用这个驱动程序去保护Qt编写的运行在后台的窗口程序，被保护的窗口程序也无法继续在前台正常运行最后崩溃停止运行，事实上这种情况感觉就好像是随机发生的，有时会出现这种情况，有时又不会，让人摸不着头脑。</p>
+<p>补充：<br>
+在Windows进程管理器下会出现CPU调用过高导致程序崩溃的原因是，内存资源已被强制释放，而进程又没被关闭，进程又没有任何读写权限导致程序崩溃，解决此问题的办法是，先捕获结束进程返回码0x1001 捕获到此值后先将进程权限变为0阻止进程被关闭，再进行捕获返回码0x1041如果捕获到说明就是在是在“进程”页面结束进程，所以在捕获到0x1041后，再恢复进程的本来所有权限就能完美解决问题了。</p>
+<p>代码地址：<br>
+<a href="https://github.com/anansi2safe/Protection">github</a></p>
+</div>
+</body>
+
+</html>
