@@ -14,6 +14,16 @@
     <link href="css/aos.css" rel="stylesheet">
     <!-- main style -->
     <link href="css/style.css" rel="stylesheet">
+    <!-- jQuery -->
+    <script src="./js/jquery-1.10.2.min.js"></script>
+    <!--  plugins  -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/todc-bootstrap/3.3.4-3.3.4/js/bootstrap.min.js"></script>
+    <script src="js/plugins.js"></script>
+    <script src="js/aos.js"></script>
+
+    <script src="js/jquery.validate.min.js"></script>
+    <!--  main script  -->
+    <script src="js/custom.js"></script>
     <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
     <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
     <!--[if lt IE 9]>
@@ -22,7 +32,7 @@
     <![endif]-->
 </head>
 
-<body>
+<body onload="isMobile()">
 
     <!-- Preloader -->
     <div id="preloader">
@@ -48,7 +58,7 @@
     <!-- ./header -->
     
     <!-- home -->
-    <div class="section" id="home" data-stellar-background-ratio="0.5" onload="isMobile()">
+    <div class="section" id="home" data-stellar-background-ratio="0.5">
         <div class="container">
             <div class="disply-table">
                 <div class="table-cell" data-aos="fade-up" data-aos-delay="0">
@@ -235,17 +245,6 @@
             </div>
         </div>
     </div>
-    <!-- jQuery -->
-    <script src="./js/jquery-1.10.2.min.js"></script>
-    <!--  plugins  -->
-    <script src="https://cdn.bootcdn.net/ajax/libs/todc-bootstrap/3.3.4-3.3.4/js/bootstrap.min.js"></script>
-    <script src="js/plugins.js"></script>
-    <script src="js/aos.js"></script>
-
-    <script src="js/jquery.validate.min.js"></script>
-
-    <!--  main script  -->
-    <script src="js/custom.js"></script>
 </body>
 
 </html>
