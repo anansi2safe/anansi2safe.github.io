@@ -261,9 +261,9 @@ a.active {
 
 #home {
     background: url(../img/home.jpg);
-    background-size: 100%;
+    background-size: cover;
     background-repeat: no-repeat;
-    height: 100vh;
+    height: 120vh;
     color: white;
 }
 
@@ -315,7 +315,8 @@ a.active {
 
 #archive {
     padding: 100px 0;
-    background: #f3f3f3
+    background: #f3f3f3;
+    height: auto;
 }
 
 .experience-row {
