@@ -17,7 +17,11 @@ function PageInit(){
         url: uri, 
         async: true, 
         success: function(res){
-            $("#doc").html(res);
+            // 替换<meta>与<title>标签
+            let reg1 = /<title(?:(?!<\/p>).|\n)*?<\/title>/gm
+            let reg2 = /<meta(?:(?!\/>).|\n)*?>/gm
+            let ht = res.replace(reg1, "").replace(reg2, "");
+            $("#doc").html(ht);
             $("#num").html("总字数:"+res.length.toString());
         }});
 }
