@@ -260,9 +260,10 @@ a.active {
 ==================================================*/
 
 #home {
-    background: url(../img/home-bg-2.png);
+    background: url(../img/home.jpg);
     background-size: cover;
     height: 100vh;
+    color: white;
 }
 
 .table-cell {
@@ -271,7 +272,7 @@ a.active {
 }
 
 .list_tel {
-    margin-top: 40%;
+    margin-top: 30%;
 }
 
 .list_tel li {
@@ -765,6 +766,12 @@ fieldset {
         list-style: none;
         margin: 10px 0;
     }
+}
+
+.dream{
+    font-family: 'Playfair Display', serif;
+    font-size: 15px;
+    line-height: 15px;
 }
 
 @media (max-width: 420px) {

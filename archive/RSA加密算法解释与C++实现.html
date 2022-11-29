@@ -1,0 +1,339 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RSA加密算法解释与C++实现</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><p>最近因为一些原因对密码学产生了点兴趣，继之前用代码实现BASE64之后最近又搞起了RSA，这让我这个数学渣用从头开始学数学。。。。泪</p>
+<h2><a id="RSA_1"></a>RSA加密算法</h2>
+<p>RSA加密算法是由三位MIT大佬发现的，故RSA算法名称由来就是取他们三位名字i的首字母。<br>
+RSA算法是一种典型的不对称加密算法，说到不对称加密就会想到对称加密，在密码学加密算法大致可分为两种：对称加密与不对称加密。</p>
+<h2><a id="_4"></a>对称加密</h2>
+<p>什么是对称加密，简单来讲就是加密与解密的密钥是相同的，举个简单的栗子，例如我们要对一个字符A加密，字符A即是明文，字符A的ASCII码为65，然后我们用一个十进制数10来做加密密钥，他的加密过程可表示为：密钥+明文，最后得出结果为75即字符K，这里的K即是密文，解密时只需要用相同的密钥10来进行逆运算：75-10就能得到明文，这就是一个最简单的对称加密的例子，当然真正的对称加密算法，过程与密钥不可能这么简单，对称加密代表算法：DES、3DES、TDEA、Blowfish、RC2、RC4、RC5、IDEA、SKIPJACK等。</p>
+<h2><a id="_6"></a>不对称加密</h2>
+<p>不对称加密的栗子比较难举，没法用简单的例子来举，总之与对称加密的概念刚好相反，他会用到两个密钥，一个称为公钥，一个称为私钥，通常加密明文时用公钥进行加密，解密时必须要用私钥才能解密，用公钥无法进行解密，代表算法：RSA、Elgamal、背包算法、Rabin、D-H、ECC等。</p>
+<h2><a id="_9"></a>比较</h2>
+<p>对称加密算法的优点一目了然：时间复杂度与空间复杂度相对于非对称加密都比较低，而缺点就是不够安全<br>
+非对称加密的优点：安全度高，缺点时间空间复杂度较高</p>
+<p>这两种加密算法可以结合使用，就能达到相互补短的作用，比如用非对称加密加密密钥然后再用解密出来的密钥再对明文内容进行对称加密，常见https协议大致就用了这样的思路，这样即提高了安全性能又提高了传输速度与资源的占用</p>
+<h2><a id="RSA_16"></a>RSA算法实现过程</h2>
+<p>说完上面的前置知识，下面就着重解释RSA算法的实现过程，接下来我来分步骤进行解释：</p>
+<ol>
+<li>首先我们需要找两个质数p、q</li>
+<li>然后求出p、q的乘积n</li>
+<li>然后再取一个欧拉函数φ(n)(<a href="https://baike.baidu.com/item/%E6%AC%A7%E6%8B%89%E5%87%BD%E6%95%B0">欧拉函数百度百科</a>)，φ(n)=(q-1)*(p-1)</li>
+<li>然后我们寻找一个公钥e，他要满足以下条件：<br>
+<code>1&lt;e&lt;φ(n)</code><br>
+<code>(e,φ(n))=1</code>（公钥e要与φ(n)互质）</li>
+<li>然后再去找到一个私钥d，他要满足的条件：<br>
+<code>(e*d)%φ(n)=1</code>	(公钥私钥相乘除以φ(n)，余数要为1</li>
+<li>现在有了密钥，就该加密环节了，加密过程：<br>
+假如我们有一个要发送的数据Y，一个公钥e，首先我们计算Y的e次方即<strong>Y^e</strong>得到一个数据，然后将这个得到的数据除以n，取得余数，这个取得的余数就是我们需要的密文y，计算过程可表示为:<code>y=(Y^e)%n</code></li>
+<li>现在还要知道如何解密，现在有一个密文y，还有一个私钥d，首先求y的d次方即<code>y^d</code>得到一个数，然后用这个数再除以n，得到的余数就是我们需要的明文Y，计算过程可简单表示为<code>Y=(y^d)%n</code></li>
+</ol>
+<p>然后我们再来看看这种算法能否被破解，假设现在有两端，<strong>服务端S</strong>，<strong>客户端C</strong>，S与C之后的通信全部需要进行加密，首先S需要生成公钥与私钥，然后将公钥和一个数n传递给C，并且将私钥保存在本地，C 接收到公钥与n之后就会利用公钥与n来对自己的明文数据或消息进行加密，然后传递给S，S收到后用仅自己拥有的私钥进行解密，再拿到明文消息或数据。</p>
+<h2><a id="_33"></a>破解方法</h2>
+<p>让我们康康，在整个传输过程中，作为hacker他能拿到的数据只有公钥e与数字n，他现在需要用这两个数来逆运算推导出私钥d，然后我们在来回头看看私钥d是如何算出来的<code>(e*d)%φ(n)=1</code>，现在我们只知道e与n如果想要再求d就必须要知道φ(n)那φ(n)又是如何计算的呢<code>φ(n)=(q-1)*(p-1)</code>现在我们又需知道p、q才能求出φ(n)，p、q又怎样求，<code>n=p*q</code>，现在不难看出，如果n这个数比较小的话，也许的确有可能通过<strong>质数分解</strong>求出p、q但如果他是一个非常大的数呢？而RSA算法中常用的是1024比特位的二进制数，就目前技术而言无法将其分解，所以破解RSA加密算法理论上可行，但以目前被普及的技术来说还无法做到（或许、可能、大概、说不定、弄不好有天才数学大佬可以分解吧，但对于普通人来讲是不可能的）当然也有一个特例，那就是量子计算机，但普通人家里谁有量子计算机？</p>
+<h2><a id="_35"></a>代码实现</h2>
+<p>实现代码前首先我们要解决几个问题：</p>
+<ul>
+<li>如何生成并存储一个1024位128个字节的高精度整数，首先用C语言自带的库很难完成这个工作，那只能考虑第三方库：GMP，这个库支持任意精度的大整数存储与运算</li>
+<li>如何得知公钥e与φ(n)互质，用辗转相除法，如果最大公约数为1即为互质，还有一个最快最简单的方法，那就是直接设为一个常用的数字65537即可</li>
+</ul>
+<p>首先生成两个大质数：</p>
+<pre><code class="prism language-cpp">	mpz_t key_p<span class="token punctuation">,</span> key_q<span class="token punctuation">,</span> temp_n<span class="token punctuation">;</span>
+    mpz_t fi<span class="token punctuation">,</span> pub_key<span class="token punctuation">,</span> pri_key<span class="token punctuation">;</span>
+    <span class="token comment">//初始化p,q,n,φ(n),公钥，私钥</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>key_p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>key_q<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>fi<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>pub_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">/*
+    *生成随机1024位质数
+    **/</span>
+   <span class="token comment">//随机数种子</span>
+    gmp_randstate_t grat<span class="token punctuation">;</span>
+    <span class="token comment">//默认生成在随机性与效率之间取一个折中</span>
+    <span class="token function">gmp_randinit_default</span><span class="token punctuation">(</span>grat<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//以当前时间作为随机数种子</span>
+    <span class="token function">gmp_randseed_ui</span><span class="token punctuation">(</span>grat<span class="token punctuation">,</span><span class="token function">time</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//生成两个个1024位的随机整数</span>
+    <span class="token function">mpz_urandomb</span><span class="token punctuation">(</span>key_p<span class="token punctuation">,</span>grat<span class="token punctuation">,</span><span class="token number">1024</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_urandomb</span><span class="token punctuation">(</span>key_q<span class="token punctuation">,</span>grat<span class="token punctuation">,</span><span class="token number">1024</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//生成素数</span>
+    <span class="token function">mpz_nextprime</span><span class="token punctuation">(</span>key_p<span class="token punctuation">,</span>key_p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_nextprime</span><span class="token punctuation">(</span>key_q<span class="token punctuation">,</span>key_q<span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>输出结果为：</p>
+<pre><code class="prism language-c"><span class="token number">60317106189242150968029907905478884454926397838</span>
+<span class="token number">63151192056069393976678696526755735882204871919</span>
+<span class="token number">60640863409260125737784699838551404308288285427</span>
+<span class="token number">22202009629439178701380058086593614241889585723</span>
+<span class="token number">84631477965807444301047539221743520620231455186</span>
+<span class="token number">51441389685261033128949964706605835556481358609</span>
+<span class="token number">98173250327588025985739839</span>
+
+<span class="token number">66011711808975252037545823728364010624488907689</span>
+<span class="token number">90643069363083107799625584556500033745996473231</span>
+<span class="token number">15790980352676928009148324711181846268064324503</span>
+<span class="token number">83413178315138572996883354239248096907001626608</span>
+<span class="token number">08392625765952133578008721528020700996465748851</span>
+<span class="token number">57917174906323291939335096453676892850856698552</span>
+<span class="token number">86464761830290932578868973</span>
+</code></pre>
+<p>现在我们去计算n与φ(n)：</p>
+<pre><code class="prism language-cpp">	<span class="token comment">/*
+    *获得n与φ(n)
+    **/</span>
+    <span class="token comment">//p×q得到n</span>
+    <span class="token function">mpz_mul</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">,</span>key_q<span class="token punctuation">,</span>key_p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//p,q分别减一后相乘得到φ(n),</span>
+    <span class="token comment">//注意结尾的ui表示32位无符号整数</span>
+    <span class="token function">mpz_sub_ui</span><span class="token punctuation">(</span>key_p<span class="token punctuation">,</span>key_p<span class="token punctuation">,</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_sub_ui</span><span class="token punctuation">(</span>key_q<span class="token punctuation">,</span>key_q<span class="token punctuation">,</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_mul</span><span class="token punctuation">(</span>fi<span class="token punctuation">,</span>key_q<span class="token punctuation">,</span>key_p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+</code></pre>
+<p>公钥与私钥获取：</p>
+<pre><code class="prism language-cpp">    <span class="token comment">/*得到公钥e此值可取65537、17、37、47
+    *,但要注意，此值除65537以外其他小值
+    *做公钥得到的密文是固定不变的，也就是说安全性是不可靠的
+    **/</span>
+    <span class="token function">mpz_set_ui</span><span class="token punctuation">(</span>pub_key<span class="token punctuation">,</span><span class="token number">65537</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+       
+    <span class="token comment">//逆元运算，求私钥</span>
+    <span class="token function">mpz_invert</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">,</span>pub_key<span class="token punctuation">,</span>fi<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//将公钥私钥与n化为字符串</span>
+    mpz_class <span class="token function">temp_d</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    mpz_class <span class="token function">swap_n</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    public_key<span class="token operator">=</span>temp_e<span class="token punctuation">.</span><span class="token function">get_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    private_key<span class="token operator">=</span>temp_d<span class="token punctuation">.</span><span class="token function">get_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    n<span class="token operator">=</span>swap_n<span class="token punctuation">.</span><span class="token function">get_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>输出结果：</p>
+<pre><code class="prism language-c">n<span class="token operator">:</span>
+<span class="token number">2613885932641755784748607510882050915421352894700858986137412842</span>
+<span class="token number">0987630493825747297211771889610932122550166024444213136746894207</span>
+<span class="token number">6644546811985416050557640881973619678619059413712496525559970627</span>
+<span class="token number">8043143184219087235268656120138267882121069707247964843912512433</span>
+<span class="token number">8774988087150761110187943552230597253550915681571836928742533421</span>
+<span class="token number">1054867862933657928417604997759982264669709738037817960310557790</span>
+<span class="token number">0425911136950171751039667170480765334133554853043160545583229033</span>
+<span class="token number">5211860578895411731343717290527769002490146989259962541984077360</span>
+<span class="token number">5698861639713299078187576869256147022559692757370637103995863292</span>
+<span class="token number">86924700157128795434021572801287758658571</span>
+public_key<span class="token operator">:</span>
+<span class="token number">65537</span>
+private_key<span class="token operator">:</span>
+<span class="token number">3988412549615874673464771824895938043275329805607304249717583719</span>
+<span class="token number">2711949728894742355023531576988467770191137867836814527285188836</span>
+<span class="token number">3282644631254735570071319837608709093518255967945582686970674012</span>
+<span class="token number">8542873772401982445440981613650713157637776686830286470104692668</span>
+<span class="token number">0768097543602485786941641442590593486962960894718764369662545691</span>
+<span class="token number">8353551197615893923404896499744348438188986738562549978291283277</span>
+<span class="token number">6902507986697558350861043057925054330262762226384991381287155378</span>
+<span class="token number">5664270488274091860994402711170314547507999860361506479173635101</span>
+<span class="token number">8119034090998956073490414694527919620672184154802411523118163683</span>
+<span class="token number">351078996272709037151947654017045651</span>
+</code></pre>
+<p>我将获取e、d、n的代码单独写成了一个类的成员函数，完整代码：</p>
+<pre><code class="prism language-cpp"><span class="token keyword">void</span> <span class="token class-name">RSA</span><span class="token double-colon punctuation">::</span><span class="token function">getKey</span>
+<span class="token punctuation">(</span>
+    _Inout_ string<span class="token operator">&amp;</span> public_key<span class="token punctuation">,</span>
+    _Inout_ string<span class="token operator">&amp;</span> private_key<span class="token punctuation">,</span>
+    _Inout_ string<span class="token operator">&amp;</span> n
+<span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+    mpz_t key_p<span class="token punctuation">,</span> key_q<span class="token punctuation">,</span> temp_n<span class="token punctuation">;</span>
+    mpz_t fi<span class="token punctuation">,</span> pub_key<span class="token punctuation">,</span> pri_key<span class="token punctuation">;</span>
+    <span class="token comment">//初始化p,q,n,φ(n),公钥，私钥</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>key_p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>key_q<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>fi<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>pub_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">/*
+    *生成随机1024位质数
+    **/</span>
+   <span class="token comment">//随机数种子</span>
+    gmp_randstate_t grat<span class="token punctuation">;</span>
+    <span class="token comment">//默认生成在随机性与效率之间取一个折中</span>
+    <span class="token function">gmp_randinit_default</span><span class="token punctuation">(</span>grat<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//以当前时间作为随机数种子</span>
+    <span class="token function">gmp_randseed_ui</span><span class="token punctuation">(</span>grat<span class="token punctuation">,</span><span class="token function">time</span><span class="token punctuation">(</span><span class="token constant">NULL</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//生成两个个1024位的随机整数</span>
+    <span class="token function">mpz_urandomb</span><span class="token punctuation">(</span>key_p<span class="token punctuation">,</span>grat<span class="token punctuation">,</span><span class="token number">1024</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_urandomb</span><span class="token punctuation">(</span>key_q<span class="token punctuation">,</span>grat<span class="token punctuation">,</span><span class="token number">1024</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//生成素数</span>
+    <span class="token function">mpz_nextprime</span><span class="token punctuation">(</span>key_p<span class="token punctuation">,</span>key_p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_nextprime</span><span class="token punctuation">(</span>key_q<span class="token punctuation">,</span>key_q<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">/*
+    *获得n与φ(n)
+    **/</span>
+    <span class="token comment">//p×q得到n</span>
+    <span class="token function">mpz_mul</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">,</span>key_q<span class="token punctuation">,</span>key_p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//p,q分别减一后相乘得到φ(n),</span>
+    <span class="token comment">//注意结尾的ui表示32位无符号整数</span>
+    <span class="token function">mpz_sub_ui</span><span class="token punctuation">(</span>key_p<span class="token punctuation">,</span>key_p<span class="token punctuation">,</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_sub_ui</span><span class="token punctuation">(</span>key_q<span class="token punctuation">,</span>key_q<span class="token punctuation">,</span><span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_mul</span><span class="token punctuation">(</span>fi<span class="token punctuation">,</span>key_q<span class="token punctuation">,</span>key_p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">/*得到公钥e此值可取65537、17、37、47
+    *,但要注意，此值除65537以外其他小值
+    *做公钥得到的密文是固定不变的，也就是说安全性是不可靠的
+    **/</span>
+    <span class="token function">mpz_set_ui</span><span class="token punctuation">(</span>pub_key<span class="token punctuation">,</span><span class="token number">65537</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token comment">//逆元运算</span>
+    <span class="token function">mpz_invert</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">,</span>pub_key<span class="token punctuation">,</span>fi<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//将公钥私钥与n化为字符串</span>
+    mpz_class <span class="token function">temp_d</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    mpz_class <span class="token function">swap_n</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    mpz_class <span class="token function">temp_e</span><span class="token punctuation">(</span>pub_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    public_key<span class="token operator">=</span>temp_e<span class="token punctuation">.</span><span class="token function">get_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    private_key<span class="token operator">=</span>temp_d<span class="token punctuation">.</span><span class="token function">get_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    n<span class="token operator">=</span>swap_n<span class="token punctuation">.</span><span class="token function">get_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>key_p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>key_q<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>fi<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>pub_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>_Inout_是我自定义的一个空宏起说明作用，个人习惯不用管他</p>
+<p>然后，便是加解密函数，代码比较少，也比较简单，直接用GMP中的模幂函数来求即可：</p>
+<p>加密:</p>
+<pre><code class="prism language-cpp">string <span class="token class-name">RSA</span><span class="token double-colon punctuation">::</span><span class="token function">RSA_Encode</span>
+<span class="token punctuation">(</span>
+    _In_ <span class="token keyword">const</span> <span class="token keyword">char</span><span class="token operator">*</span> IN_Data<span class="token punctuation">,</span>
+     _Inout_ size_t<span class="token operator">&amp;</span> inoutLen<span class="token punctuation">,</span>
+    _In_ string public_key<span class="token punctuation">,</span>
+    _In_ string n
+<span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+    mpz_t m<span class="token punctuation">,</span>pub_e<span class="token punctuation">,</span>temp_n<span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>m<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>pub_e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//取得公钥、n、明文，将输入内容统一转化为十进制高精度整数</span>
+    <span class="token function">mpz_set_str</span><span class="token punctuation">(</span>pub_e<span class="token punctuation">,</span>public_key<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span><span class="token number">10</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_set_str</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">,</span>n<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span><span class="token number">10</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    string out_data<span class="token punctuation">;</span>
+    <span class="token comment">/*对字符串循环加密，并用回车隔开
+    *防止字符串密文混乱无法辨识
+    **/</span>
+    <span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">int</span> i<span class="token operator">=</span><span class="token number">0</span><span class="token punctuation">;</span>i<span class="token operator">&lt;</span>inoutLen<span class="token punctuation">;</span>i<span class="token operator">++</span><span class="token punctuation">)</span>
+    <span class="token punctuation">{</span>
+        <span class="token function">mpz_set_ui</span><span class="token punctuation">(</span>m<span class="token punctuation">,</span><span class="token punctuation">(</span><span class="token keyword">unsigned</span> <span class="token keyword">long</span><span class="token punctuation">)</span>IN_Data<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">/*
+        *模幂操作，取密文
+        *c=(m^e) mod n
+        **/</span>
+        <span class="token function">mpz_powm</span><span class="token punctuation">(</span>m<span class="token punctuation">,</span>m<span class="token punctuation">,</span>pub_e<span class="token punctuation">,</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">//取得字符串</span>
+        mpz_class <span class="token function">c_data</span><span class="token punctuation">(</span>m<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        out_data<span class="token punctuation">.</span><span class="token function">append</span><span class="token punctuation">(</span>c_data<span class="token punctuation">.</span><span class="token function">get_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        out_data<span class="token punctuation">.</span><span class="token function">append</span><span class="token punctuation">(</span><span class="token string">"\n"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    inoutLen<span class="token operator">=</span>out_data<span class="token punctuation">.</span><span class="token function">length</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>m<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>pub_e<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> out_data<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>为了解决字符串字符加密后密文存放在一起，无法分清哪个密文属于哪个明文问题，我们采用了使用回车将密文隔开的办法，那么在解密过程中就需要将密文字符串拆解为一个字符串列表来依次处理<br>
+解密：</p>
+<pre><code class="prism language-cpp">string <span class="token class-name">RSA</span><span class="token double-colon punctuation">::</span><span class="token function">RSA_Decode</span>
+<span class="token punctuation">(</span>
+    _In_ string private_key<span class="token punctuation">,</span>
+    _In_ string n<span class="token punctuation">,</span>
+    _In_ string c_data<span class="token punctuation">,</span>
+    _Inout_ size_t<span class="token operator">&amp;</span> inoutLen
+<span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+    vector<span class="token operator">&lt;</span>string<span class="token operator">&gt;</span>C_List<span class="token punctuation">;</span>
+    string temp_str<span class="token punctuation">;</span>
+    cout<span class="token operator">&lt;&lt;</span><span class="token string">"\n\n\n\n\n\n"</span><span class="token punctuation">;</span>
+    <span class="token comment">//循环拆分字符串，根据原有字符个数拆分为字符串容器列表</span>
+    <span class="token comment">//以此按顺序处理密文</span>
+    <span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">int</span> i<span class="token operator">=</span><span class="token number">0</span><span class="token punctuation">;</span>i<span class="token operator">&lt;</span>inoutLen<span class="token punctuation">;</span>i<span class="token operator">++</span><span class="token punctuation">)</span>
+    <span class="token punctuation">{</span>
+        <span class="token keyword">if</span><span class="token punctuation">(</span>c_data<span class="token punctuation">.</span><span class="token function">at</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token operator">==</span><span class="token char">'\n'</span><span class="token punctuation">)</span>
+        <span class="token punctuation">{</span>
+            C_List<span class="token punctuation">.</span><span class="token function">push_back</span><span class="token punctuation">(</span>temp_str<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            temp_str<span class="token punctuation">.</span><span class="token function">clear</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token keyword">continue</span><span class="token punctuation">;</span>
+        <span class="token punctuation">}</span>
+        temp_str<span class="token operator">+=</span>c_data<span class="token punctuation">.</span><span class="token function">at</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">//cout&lt;&lt;"list\n\n"&lt;&lt;C_List.at(0);</span>
+    
+    mpz_t pri_key<span class="token punctuation">,</span>temp_n<span class="token punctuation">,</span>C_Data<span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_init</span><span class="token punctuation">(</span>C_Data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//将字符串转为mpz_t高精度整数</span>
+    <span class="token function">mpz_set_str</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">,</span>private_key<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span><span class="token number">10</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_set_str</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">,</span>n<span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span><span class="token number">10</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    string back_data<span class="token punctuation">;</span>
+    <span class="token comment">//循环根据容器个数来判断原本有几个字符，</span>
+    <span class="token comment">//并将其密文解析为明文</span>
+    <span class="token keyword">for</span><span class="token punctuation">(</span><span class="token keyword">int</span> i<span class="token operator">=</span><span class="token number">0</span><span class="token punctuation">;</span>i<span class="token operator">&lt;</span>C_List<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>i<span class="token operator">++</span><span class="token punctuation">)</span>
+    <span class="token punctuation">{</span>
+    	<span class="token comment">//从字符串取值转化为十进制大整数</span>
+        <span class="token function">mpz_set_str</span><span class="token punctuation">(</span>C_Data<span class="token punctuation">,</span>C_List<span class="token punctuation">.</span><span class="token function">at</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">c_str</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span><span class="token number">10</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">//模幂运算M=(C^d) mod n</span>
+        <span class="token function">mpz_powm</span><span class="token punctuation">(</span>C_Data<span class="token punctuation">,</span>C_Data<span class="token punctuation">,</span>pri_key<span class="token punctuation">,</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token comment">//先将取到的明文ASCII转化为C语言基本类型</span>
+        <span class="token comment">//再直接将ASCII码转为字符，再将字符追加进字符串</span>
+        <span class="token comment">//这样就完美还原了明文</span>
+        mpz_class <span class="token function">CD</span><span class="token punctuation">(</span>C_Data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">unsigned</span> <span class="token keyword">long</span> lchar<span class="token operator">=</span>CD<span class="token punctuation">.</span><span class="token function">get_ui</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        <span class="token keyword">char</span> words<span class="token operator">=</span><span class="token punctuation">(</span><span class="token keyword">char</span><span class="token punctuation">)</span>lchar<span class="token punctuation">;</span>
+        back_data<span class="token operator">+=</span>words<span class="token punctuation">;</span>
+    <span class="token punctuation">}</span>
+    <span class="token comment">//返回长度</span>
+    inoutLen<span class="token operator">=</span>back_data<span class="token punctuation">.</span><span class="token function">length</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>pri_key<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>temp_n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token function">mpz_clear</span><span class="token punctuation">(</span>C_Data<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token comment">//返回明文</span>
+    <span class="token keyword">return</span> back_data<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>然后再写一个调试代码：</p>
+<pre><code class="prism language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span><span class="token string">"RSA.h"</span></span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+    string e<span class="token punctuation">,</span>d<span class="token punctuation">,</span>n<span class="token punctuation">;</span>
+    RSA<span class="token operator">*</span> a<span class="token operator">=</span><span class="token keyword">new</span> <span class="token function">RSA</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    a<span class="token operator">-&gt;</span><span class="token function">getKey</span><span class="token punctuation">(</span>e<span class="token punctuation">,</span>d<span class="token punctuation">,</span>n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    size_t out_len<span class="token operator">=</span><span class="token function">strlen</span><span class="token punctuation">(</span><span class="token string">"啦啦啦"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    string c<span class="token operator">=</span>a<span class="token operator">-&gt;</span><span class="token function">RSA_Encode</span><span class="token punctuation">(</span><span class="token string">"啦啦啦"</span><span class="token punctuation">,</span>out_len<span class="token punctuation">,</span>e<span class="token punctuation">,</span>n<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    cout<span class="token operator">&lt;&lt;</span><span class="token string">"\n明文:\n啦啦啦\n"</span><span class="token operator">&lt;&lt;</span><span class="token string">"密文:\n"</span><span class="token operator">&lt;&lt;</span>c<span class="token operator">&lt;&lt;</span><span class="token string">"\n长度:\n"</span><span class="token operator">&lt;&lt;</span>out_len<span class="token punctuation">;</span>
+    string m<span class="token operator">=</span>a<span class="token operator">-&gt;</span><span class="token function">RSA_Decode</span><span class="token punctuation">(</span>d<span class="token punctuation">,</span>n<span class="token punctuation">,</span>c<span class="token punctuation">,</span>out_len<span class="token punctuation">)</span><span class="token punctuation">;</span>
+    cout<span class="token operator">&lt;&lt;</span><span class="token string">"\n\n密文:\n"</span><span class="token operator">&lt;&lt;</span>c<span class="token operator">&lt;&lt;</span><span class="token string">"\n明文:\n"</span><span class="token operator">&lt;&lt;</span>m<span class="token operator">&lt;&lt;</span><span class="token string">"\n长度:\n"</span><span class="token operator">&lt;&lt;</span>out_len<span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>加密结果：<br>
+<img src="https://img-blog.csdnimg.cn/20200503215908359.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80MzgxNTkzMA==,size_16,color_FFFFFF,t_70#pic_center" alt="在这里插入图片描述"></p>
+<p>解密结果：<br>
+<img src="https://img-blog.csdnimg.cn/20200503215758173.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80MzgxNTkzMA==,size_16,color_FFFFFF,t_70#pic_center" alt="在这里插入图片描述"><br>
+中文加密没有问题英文加密测试过也是没有问题，所以从上图可以看出仅三个中文字符6个字节的数据就会获得如此庞大的密文，所以不对称加密在传输过程中是极其耗费带宽与时间的，所以并不适合某些高频率传输的场景</p>
+</div>
+</body>
+
+</html>
