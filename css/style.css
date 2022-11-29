@@ -355,6 +355,7 @@ a.active {
 
 .list-arch {
     overflow: hidden;
+    height: auto;
 }
 .timeline-event-copy {
     padding: 1.5em;
