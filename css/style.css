@@ -261,7 +261,8 @@ a.active {
 
 #home {
     background: url(../img/home.jpg);
-    background-size: cover;
+    background-size: 100%;
+    background-repeat: no-repeat;
     height: 100vh;
     color: white;
 }
