@@ -1,4 +1,11 @@
 // JavaScript Document
+function isMobile(){
+    if(window.navigator.userAgent.match(/(phone|pad|pod|iPhone|iPod|ios|iPad|Android|Mobile|BlackBerry|IEMobile|MQQBrowser|JUC|Fennec|wOSBrowser|BrowserNG|WebOS|Symbian|Windows Phone)/i)) {
+      $("#home").css("background","url(../img/home2.jpg)");
+    }else{
+      return false; // PC端
+    }
+}
 
 $(window).load(function () {
     "use strict";
