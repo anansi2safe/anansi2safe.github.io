@@ -1,4 +1,3 @@
-
 /* Google fonts & font family
 ==================================================*/
 
@@ -60,7 +59,14 @@ body {
     height: 50px;
 }
 
-.tlinks{text-indent:-9999px;height:0;line-height:0;font-size:0;overflow:hidden;}
+.tlinks {
+    text-indent: -9999px;
+    height: 0;
+    line-height: 0;
+    font-size: 0;
+    overflow: hidden;
+}
+
 /* preloader
 ==================================================*/
 
@@ -130,11 +136,13 @@ body {
         margin-top: -30px;
         margin-left: -30px
     }
+
     .preloader:before {
         left: -2px;
         top: -2px;
         border-width: 2px
     }
+
     .preloader>.icon {
         height: 37.5px;
         width: 15.9px;
@@ -150,6 +158,7 @@ body {
         margin-top: -30px;
         margin-left: -30px
     }
+
     .preloader>.icon {
         height: 50px;
         width: 21.2px;
@@ -163,6 +172,7 @@ body {
         -webkit-transform: rotate(0);
         transform: rotate(0)
     }
+
     to {
         -webkit-transform: rotate(359deg);
         transform: rotate(359deg)
@@ -174,6 +184,7 @@ body {
         -webkit-transform: rotate(0);
         transform: rotate(0)
     }
+
     to {
         -webkit-transform: rotate(359deg);
         transform: rotate(359deg)
@@ -184,6 +195,7 @@ body {
     from {
         opacity: 0
     }
+
     to {
         opacity: 1
     }
@@ -193,6 +205,7 @@ body {
     from {
         opacity: 0
     }
+
     to {
         opacity: 1
     }
@@ -293,6 +306,7 @@ a.active {
 
 #about {
     padding: 100px 0;
+    height: 120vh;
 }
 
 .about-img-div img {
@@ -316,7 +330,7 @@ a.active {
 #archive {
     padding: 100px 0;
     background: #f3f3f3;
-    height: auto;
+    height: 120vh;
 }
 
 .experience-row {
@@ -352,7 +366,8 @@ a.active {
 }
 
 .timeline-event:hover .timeline-event-thumbnail {
-    min-height: 40pt;;
+    min-height: 40pt;
+    ;
     height: 200pt;
 }
 
@@ -360,6 +375,7 @@ a.active {
     overflow: hidden;
     height: auto;
 }
+
 .timeline-event-copy {
     padding: 1.5em;
     position: relative;
@@ -759,21 +775,24 @@ fieldset {
         font-size: 50px;
         line-height: 50px;
     }
+
     #home,
     .disply-table {
         height: 700px;
         max-height: auto;
     }
+
     .about-border {
         width: 265px;
     }
+
     .portfolio .categories-grid .categories ul li {
         list-style: none;
         margin: 10px 0;
     }
 }
 
-.dream{
+.dream {
     font-family: 'Playfair Display', serif;
     font-size: 15px;
     line-height: 15px;
@@ -783,6 +802,7 @@ fieldset {
     nav li {
         margin: 6px;
     }
+
     nav li a {
         font-size: 10px;
     }
