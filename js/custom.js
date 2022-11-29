@@ -2,9 +2,11 @@
 function isMobile(){
     if(window.navigator.userAgent.match(/(phone|pad|pod|iPhone|iPod|ios|iPad|Android|Mobile|BlackBerry|IEMobile|MQQBrowser|JUC|Fennec|wOSBrowser|BrowserNG|WebOS|Symbian|Windows Phone)/i)) {
       alert("sss");
-      $("#home").css("background","url(../img/home2.jpg)");
-    }else{
-      alert("lllll") // PC端
+      $("#home").css({
+        "background": "url(./img/home2.jpg)",
+        "background-size": "cover",
+        "background-repeat": "no-repeat"
+        });
     }
 }
 
