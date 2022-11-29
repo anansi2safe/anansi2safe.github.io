@@ -352,8 +352,8 @@ a.active {
 }
 
 .timeline-event:hover .timeline-event-thumbnail {
+    min-height: 40pt;;
     height: 150pt;
-    display:inline-block;
 }
 
 .list-arch {
@@ -392,7 +392,7 @@ a.active {
     transition: transform 0.2s ease-in, -webkit-transform 0.2s ease-in;
     -webkit-transform: rotate(45deg);
     transform: rotate(45deg);
-    background-color: #425BB5;
+    background-color: rgb(145, 0, 0);
     outline: 10px solid #f3f3f3;
     display: block;
     margin: 0.5em 0.5em 0.5em -0.5em;
@@ -415,8 +415,9 @@ a.active {
     color: rgb(0, 0, 0);
     font-size: 12px;
     display: inline-block;
-    margin-bottom: 1.2em;
+    margin-bottom: 0.2em;
     cursor: pointer;
+    display: inline-block;
 }
 
 .timeline-event-thumbnail h3 {
