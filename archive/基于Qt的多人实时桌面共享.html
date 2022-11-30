@@ -1,0 +1,51 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>基于Qt的多人实时桌面共享</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><p>首先需要进行问题分析，想要达到多人实时桌面共享功能，要先解决四个问题：</p>
+<p>1.如何截取桌面画面<br>
+2. 如何暂存画面，且能够快速的存取，	<br>
+并且方便进行收发<br>
+3.暂存的图片以何种格式保存<br>
+4.利用何种网络协议进行通讯</p>
+<p>首先解决第一个问题，也是最好解决的问题，在Qt中可以利用</p>
+<pre><code class="prism language-cpp">QScreen<span class="token operator">*</span>screen<span class="token operator">=</span><span class="token class-name">QApplication</span><span class="token double-colon punctuation">::</span><span class="token function">primaryScreen</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+QPixmap pixbuf<span class="token operator">=</span>screen<span class="token operator">-&gt;</span><span class="token function">grabWindow</span><span class="token punctuation">(</span><span class="token class-name">QApplication</span><span class="token double-colon punctuation">::</span><span class="token function">desktop</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">-&gt;</span><span class="token function">winId</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>这种办法来截取桌面画面，最终获取到的QPixmap对象便是我们所需要的图片</p>
+<p>第二个问题，如何暂存截取到的画面，解决这个问题不可忽视的一个前提是，要能够进行快速的读写，所以，以文件的形式进行暂存，显然是行不通的，因为文件存储在磁盘上，磁盘的存取速度过于缓慢，既然磁盘存取速度过慢，那内存不久正好可以解决这个问题吗，所以我们需要在内存中开辟一块缓冲区来暂存我们获取到的画面，这样既能够暂存，又能够快速存取，在Qt中可以利用QBuffer对象来实现。</p>
+<p>第三个问题，用什么格式来保存图片，通常情况下，常见的图片格式有jpg,png,bmp等…这当中jpg格式既可以较好的保持图片原有的画面质量，又能够尽量小的保存图片，可以将原本MB大小的图片变成几百KB。</p>
+<p>2，3两个问题在Qt中可以用代码：</p>
+<pre><code class="prism language-cpp">QImage img2<span class="token operator">=</span>pixbuf<span class="token punctuation">.</span><span class="token function">toImage</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+QBuffer buf<span class="token punctuation">;</span>
+pixbuf<span class="token punctuation">.</span><span class="token function">save</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>buf<span class="token punctuation">,</span><span class="token string">"jpg"</span><span class="token punctuation">,</span><span class="token number">90</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+buf<span class="token punctuation">.</span><span class="token function">close</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>其中pixbuf就是刚刚我们所获取到的桌面截图，pixbuf.save(&amp;buf,“jpg”,90);这一行代码中，第一个参数不做解释，光看字面都能理解，要是理解不了，那我也只能劝退了，第二个参数"jpg"就是我们图片所保存的格式，第三个参数按照我的理解就是一种压缩率，具体的学术用语我也说不上来，但我知道的是，这个参数与图片保存时的清晰度有关，值越大，图像越清晰。</p>
+<p>最后一个问题，也是最难搞的问题，如何进行网络通信，首先想要达到多人共享的效果，就要确定我们需要进行广播，而我们常用的tcp协议恰似没有这个功能，所以我们就来使用它的另一个兄弟协议udp协议（还有很多其他可用协议，可自行查找文档实现），但udp协议也有一个限制，那就是单次传输的数据包不可过大，而我们使用jpg协议保存的图片最小也要几百KB,明显是不行的，那么如何既能可靠快速的传输图片，又能最大程度上保持图片原有的清晰度？最好的办法就是udp分包发送图片，然后接收端再进行组包，其实通俗来讲就是把一个大文件切割成一个个的小数据包，然后利用UDP协议进行发送，具体实现细节，可以参考另一位大佬的博客：<br>
+<a href="https://blog.csdn.net/caoshangpa/article/details/52681572">Qt通过UDP传图片，实现自定义分包和组包-----灿哥哥 </a></p>
+<p>除此之外，在进行数据包传输过程中，还可以对数据进行进一步压缩，可以使用Qt 自带的qCompress函数进行压缩，接收端使用qUncompress解压缩，Qt代码：</p>
+<pre><code class="prism language-cpp"><span class="token comment">//控制流</span>
+QDataStream <span class="token function">out</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>StreamByteArray<span class="token punctuation">,</span>QIODevice<span class="token double-colon punctuation">::</span>WriteOnly<span class="token punctuation">)</span><span class="token punctuation">;</span>
+out<span class="token operator">&lt;&lt;</span><span class="token number">0</span><span class="token operator">&lt;&lt;</span>byteArray<span class="token punctuation">;</span>
+<span class="token comment">//压缩数据</span>
+QByteArray compressData<span class="token operator">=</span><span class="token function">qCompress</span><span class="token punctuation">(</span>StreamByteArray<span class="token punctuation">)</span><span class="token punctuation">;</span>
+            <span class="token comment">//发送数据，并测试发送数据与实际数据大小是否一致，一致则发送成功</span>
+ser_udp<span class="token operator">-&gt;</span><span class="token function">writeDatagram</span><span class="token punctuation">(</span>compressData<span class="token punctuation">.</span><span class="token function">data</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                       compressData<span class="token punctuation">.</span><span class="token function">size</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+                       QHostAddress<span class="token double-colon punctuation">::</span>Broadcast<span class="token punctuation">,</span>
+                       <span class="token number">666</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+ser_udp<span class="token operator">-&gt;</span><span class="token function">close</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>这里要解释一下的是，byteArray是我们刚刚暂存进QBuffer后图片的字节数组数据加上UDP分包发送的数据包头所组成的，writeDatagram中的第一个参数是要发送的数据，第二个参数是数据大小，第三个参数是要发送到的目标地址，我在这里使用<code>QHostAddress::Broadcast</code>代表进行Ipv4广播，相当于QHostAddress(“255.255.255.255”)。</p>
+</div>
+</body>
+
+</html>

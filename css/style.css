@@ -306,7 +306,7 @@ a.active {
 
 #about {
     padding: 100px 0;
-    height: 120vh;
+    min-height: 120vh;
 }
 
 .about-img-div img {
@@ -330,7 +330,7 @@ a.active {
 #archive {
     padding: 100px 0;
     background: #f3f3f3;
-    height: 120vh;
+    min-height: 120vh;
 }
 
 .experience-row {

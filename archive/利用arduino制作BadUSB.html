@@ -1,0 +1,89 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>利用arduino制作BadUSB</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h2><a id="BadUSB_0"></a>BadUSB</h2>
+<p>BadUSB是由arsten Nohl和Jakob Lell共同发现，并在2014年的BlackHat安全大会上公布的USB漏洞。早期的U盘病毒是在正常的U盘中存入一个autorun.inf可以自启动程序的小脚本，来自动运行某些程序，以此来达到木马入侵或者病毒攻击的效果，但毕竟时代在进步，如此简单的攻击方法自然很容易就会被各种杀软以及系统自带的防御系统识别kill掉，而且后来微软也发现了这个安全漏洞以至于之后的windows系统版本默认也是吧autorun关闭掉的，所以这种攻击方法已经显得极其鸡肋，于是乎就出现了另一种USB攻击思路，USB设备芯片中往往会有一块闪存负责存储数据，他的作用就像是我们电脑上的硬盘，而在这块闪存中会预留一部分用于存储设备固件，而这中新的思路就是将恶意代码直接植入进固件中，这样既不会被杀软察觉更不会被kill掉而将这种思路付诸实践的就是BadUSB。</p>
+<p>早期的BadUSB实现方式有两种：<br>
+<em><strong>USB RUBBER DUCKY</strong></em></p>
+<p>简称USB橡皮鸭，是最早的按键注入工具，通过嵌入式开发板实现，后来发展成为一个完全成熟的商业化按键注入攻击平台。它的原理同样是将USB设备模拟成为键盘，让电脑识别成为键盘，然后进行脚本模拟按键进行攻击，现已成为一个商业化的产品。</p>
+<pre><code>  缺点：通用性较差，需要定制，且根据我的淘宝调研，
+  	    他的价格要比之后的两者贵不少，果断pass
+</code></pre>
+<p><em><strong>TEENSY</strong></em></p>
+<pre><code>   攻击者在定制攻击设备时，会向USB设备中置入一个攻击芯片，此攻击芯片是一个非常小而且功能完整的单片机开发系统---TEENSY。通过TEENSY你可以模拟出一个键盘和鼠标，当你插入这个定制的USB设备时，电脑会识别为一个键盘，利用设备中的微处理器与存储空间和编程进去的攻击代码，就可以向主机发送控制命令，从而完全控制主机，无论自动播放是否开启，都可以成功
+   
+   缺点：需要购买定制芯片，且芯片中的程序不开源，
+       虽然也可以用arduino IDE来做程序的开发，
+       但这东西不太讨我喜欢，毕竟我是一个凡事都追求开源的人
+</code></pre>
+<p>在后来就轮到最讨我喜欢得arduino了，相比USB RUBBER DUCKY他更廉价且通用性更好，相比TEENSY他开源</p>
+<p>首先要说明的是，因为BadUSB的基本实现方法是将一块arduino开发板为装成一个键盘设备来对受害设备进行控制，所以要选用支持USB直接通讯的开发板，不要妄想用arduino nano之类将串口通过CH340G之类转换芯片转换成USB的开发板，一来用了这些转换芯片的的开发板在新设备上想要被识别需要安装驱动（你在渗透攻击受害者电脑的时候总不可能盼着受害人自己安装驱动自己坑自己），二来之后我们要用到的一个头文件只支持有直接USB通讯能力的开发板。</p>
+<p>所以我在这就用了Arduino micro开发板，首先他体积够小，其次因为他用ATmega32U4做核心芯片，所以他直接支持USB通讯，详情可自行上网查询关于ATmega32U4的芯片手册<br>
+<img src="https://img-blog.csdnimg.cn/20200311225615761.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80MzgxNTkzMA==,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">在这里我放了三块开发板，其中中间这一个与装在袋子里的这一个都是我们需要的micro开发板，而上面插杜邦线的这块是Arduino Nano开发板，这两种开发板外观虽然长得非常像，但区别却很大，首先Arduino Nano使用的USB接口是老式的Mini USB接口也也就是早期老式手机的那种充电线，而Micro使用的是现在安卓设备通用的mirco USB接口的数据线，nano使用的芯片一般为ATmega328P或者ATmega168这两种芯片都不支持直接进行USB通讯，需要将串口转换为USB，也就是我刚刚提到的那种情况，而micro使用ATmega32U4的芯片，他支持直接进行USB通讯，但是32U4的价格也要比328P以及168要贵一点，所以开发板自然也就贵一点，除此之外他们两者最大的一个外观区别就是nano要比micro要大不少，nano想要装进U盘外壳且还能完美伪装基本上是不可能的。<br>
+我的单个一块开发板大概是17RMB包邮，如果有大量需要但是有觉得零售价格太贵的话，可以考虑直接买ATmega32U4的芯片直接自己DIY一个arduino micro开发板，他是完全开源的（开源万岁），可以直接从官网下载原理图以及PCB图拿去抄板，然后再将bootloader烧写进去就好了<br>
+arduino micro官网：<br>
+<a href="https://www.arduino.cc/en/Main/ArduinoBoardMicro">Arduino Mirco</a></p>
+<p>注意官网只有Eagle格式的，没有AD格式的</p>
+<p><img src="https://img-blog.csdnimg.cn/20200311231451413.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80MzgxNTkzMA==,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">硬件说完，就该说说软件的开发环境了，开发环境自然是用Arduino IDE可以直接从官网下载所需版本，我这里用的是linux版<br>
+<img src="https://img-blog.csdnimg.cn/20200311231931620.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80MzgxNTkzMA==,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">在这我要说明的是，Linux下下载好tar.gz压缩包后，解压以后直接打开arduino写代码就好了，不要用install.sh做没必要的安装，而且我在kali下用install.sh安装后使用发现无法正常上传程序并且还导致开发板无法被识别，需要复位后才可以，切忌切忌</p>
+<p>打开IDE后如果开发板没有问题的话在工具=》端口一栏中会有/dev/ttyACM0(Arduino Micro)（windows下为COMx(Arduino Micro))的一个勾选框，将它勾选，如过开发板连接有问题或者没有连接开发板的话则只有/dev/ttyS0（windows下为COM1，COM2）,开发板一栏默认会被选为arduino micro如果没被选中请自行选中<br>
+然后就可以开始写代码了<br>
+如果在linux下出现IDE中无法选择端口的情况，到/dev目录下，找到你的开发板连接电脑后对应的文件，然后<code>sudo chmod 777 /dev/‘你的开发板对应的文件,一个叫tty什么什么的文件</code><br>
+如何查看是哪个文件，你可以在插开发板前ls看一下，插上后再ls看一下，比对插上后比插前多了哪个文件，多出来的那个就是</p>
+<p>我这里简单写一个在windows下运行，打开cmd窗口后运行tree指令的代码</p>
+<pre><code class="prism language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span> <span class="token string">&lt;Keyboard.h&gt;</span></span>
+
+<span class="token keyword">void</span> <span class="token function">setup</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// put your setup code here, to run once:</span>
+  <span class="token comment">//初始化键盘</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">begin</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">//按下键盘左边的win建</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">press</span><span class="token punctuation">(</span>KEY_LEFT_GUI<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">//延时让系统反应</span>
+  <span class="token function">delay</span><span class="token punctuation">(</span><span class="token number">500</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">//按下r键</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">press</span><span class="token punctuation">(</span><span class="token char">'r'</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">delay</span><span class="token punctuation">(</span><span class="token number">100</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">//释放两个按键</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">releaseAll</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">//开启大写防止中文输入法</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">press</span><span class="token punctuation">(</span>KEY_CAPS_LOCK<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">release</span><span class="token punctuation">(</span>KEY_CAPS_LOCK<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">delay</span><span class="token punctuation">(</span><span class="token number">200</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">//输入CMD</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">println</span><span class="token punctuation">(</span><span class="token string">"CMD"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">delay</span><span class="token punctuation">(</span><span class="token number">300</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">//回车</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">press</span><span class="token punctuation">(</span>KEY_RETURN<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">release</span><span class="token punctuation">(</span>KEY_RETURN<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token comment">//按下tree指令</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">println</span><span class="token punctuation">(</span><span class="token string">"TREE"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token function">delay</span><span class="token punctuation">(</span><span class="token number">300</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">press</span><span class="token punctuation">(</span>KEY_RETURN<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  Keyboard<span class="token punctuation">.</span><span class="token function">release</span><span class="token punctuation">(</span>KEY_RETURN<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">void</span> <span class="token function">loop</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// put your main code here, to run repeatedly:</span>
+
+<span class="token punctuation">}</span>
+
+</code></pre>
+<p>其中setup函数实在设备被加载后只运行一次的函数，可以在此函数内将需要的全局变量进行初始化，loop函数则是设备被加载后，会持续循环执行的函数<br>
+keyboard.h头文件中的函数就是我们所所需要用来实现键盘交互的头文件，他只能在支持USB通讯的开发板下编译，如果在nano之类不直接支持USB通讯的开发板下编译，则会报错<br>
+<img src="https://img-blog.csdnimg.cn/20200311233537811.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80MzgxNTkzMA==,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">就会出现这种明明已经包含了keyboard.h头文件，却还提示没有包含的错误</p>
+<p>程序编译上传成功后插入windows系统USB口中代码成功执行，但经过反复验证发现在老式win7系统下驱动不被识别，win10全部识别，并且被识别为一个键盘设备，不过win7现在在商业环境中基本上被淘汰，这个问题暂时就不去管他了，另外如果想要将开发板直接伪装成一个U盘的话，可以上淘宝买OTG转接头，要注意的是开发板上的接口是母头，所以OTG转换头上就是两个公头，一个公头插开发板的母头，另一个公头外露插电脑<br>
+例如：<br>
+<img src="https://img-blog.csdnimg.cn/20200312000539304.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80MzgxNTkzMA==,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">这种，也可以自己买usb公头然后自己用电烙铁DIY一个，就像我在Nano开发板上的那种，要注意的是要买micro USB接口的</p>
+</div>
+</body>
+
+</html>
