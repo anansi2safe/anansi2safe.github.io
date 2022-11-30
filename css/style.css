@@ -287,6 +287,10 @@ a.active {
 
 .list_tel {
     margin-top: 30%;
+    width: 70%;
+    margin-left: 15%;
+    margin-right: 15%;
+    text-align: center;
 }
 
 .list_tel li {
