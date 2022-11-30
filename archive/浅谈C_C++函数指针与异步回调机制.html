@@ -1,0 +1,133 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>浅谈C/C++函数指针与异步回调机制</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h2><a id="_0"></a>函数指针与指针函数</h2>
+<p>先来看两种声明：</p>
+<pre><code class="prism language-cpp"><span class="token keyword">int</span><span class="token operator">*</span> <span class="token function">fun</span><span class="token punctuation">(</span><span class="token keyword">int</span> i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<pre><code class="prism language-cpp"><span class="token keyword">int</span> <span class="token punctuation">(</span><span class="token operator">*</span>fun<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">int</span> i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>首先明确，前者为指针函数，后者为函数指针,他们的区别就在于:</p>
+<ol>
+<li>一个<strong>返回值类型为int型指针</strong>的函数</li>
+<li>一个指向<strong>返回值类型为int</strong>的函数的指针</li>
+</ol>
+<p>也就是说函数指针可以将函数变成一个类似与变量的东西供我们操作</p>
+<p>两者的用法实例:<br>
+1.</p>
+<pre><code class="prism language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span><span class="token string">&lt;stdio.h&gt;</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span><span class="token string">&lt;stdlib.h&gt;</span></span>
+
+<span class="token keyword">int</span><span class="token operator">*</span> <span class="token function">fun</span><span class="token punctuation">(</span><span class="token keyword">int</span> i<span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+	<span class="token keyword">return</span> <span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token keyword">int</span><span class="token operator">*</span><span class="token punctuation">)</span><span class="token function">malloc</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span> 
+	<span class="token comment">/*
+	申请一块动态内存,以指针的形式返回,等价于
+	int* p = (int*)malloc(i);
+	return p;
+	*/</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token keyword">int</span> argc<span class="token punctuation">,</span><span class="token keyword">char</span><span class="token operator">*</span> argv<span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+	<span class="token keyword">int</span><span class="token operator">*</span> p <span class="token operator">=</span> <span class="token function">fun</span><span class="token punctuation">(</span><span class="token keyword">sizeof</span><span class="token punctuation">(</span><span class="token keyword">int</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token operator">*</span>p  <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span>
+	<span class="token function">printf</span><span class="token punctuation">(</span><span class="token string">"%d"</span><span class="token punctuation">,</span><span class="token operator">*</span>p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token function">free</span><span class="token punctuation">(</span>p<span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>指针函数可以将一个指针变量作为返回值</p>
+<ol start="2">
+<li></li>
+</ol>
+<pre><code class="prism language-cpp"><span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span><span class="token string">&lt;stdio.h&gt;</span></span>
+<span class="token macro property"><span class="token directive-hash">#</span><span class="token directive keyword">include</span><span class="token string">&lt;stdlib.h&gt;</span></span>
+
+<span class="token keyword">int</span> <span class="token function">fun</span><span class="token punctuation">(</span><span class="token keyword">int</span> i<span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+	<span class="token function">printf</span><span class="token punctuation">(</span><span class="token string">"num %d"</span><span class="token punctuation">,</span>i<span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token keyword">int</span> argc<span class="token punctuation">,</span><span class="token keyword">char</span><span class="token operator">*</span> argv<span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+	<span class="token comment">//这里也可以将参数部分的变量名写上去,没有什么区别int (*pfun)(int i) = fun;</span>
+	<span class="token keyword">int</span> <span class="token punctuation">(</span><span class="token operator">*</span>pfun<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">int</span><span class="token punctuation">)</span> <span class="token operator">=</span> fun<span class="token punctuation">;</span>
+	<span class="token function">pfun</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token comment">//这里调用的是函数指针pfun,不是函数fun</span>
+	<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>函数指针可以将一个函数地址存入指针,之后通过调用该指针来达到调用函数的目的</p>
+<h2><a id="_66"></a>异步回调机制</h2>
+<p>什么是回调?对于对windows编程与js比较了解的同鞋肯定都知道,但为了照顾不了解的同鞋,我还是来简单介绍一下.</p>
+<p>从函数的调用方式来讲，可以分为三类：同步调用、回调、异步调用。<br>
+同步调用是一种阻塞式调用，调用方要等待对方执行完毕才返回，它是一种单向调用；<br>
+回调是一种双向调用模式，也就是说，被调用方在接口被调用时也会调用对方的接口；<br>
+异步调用是一种类似消息或事件的机制，不过它的调用方向刚好相反，接口的服务在收到某种讯息或发生某种事件时，会主动通知客户方（即调用客户方的接口）。回调和异步调用的关系非常紧密，通常我们使用回调来实现异步消息的注册，通过异步调用来实现消息的通知。<br>
+同步调用是三者当中最简单的，而回调又常常是异步调用的基础</p>
+<p>通常我们直接的去调用函数算是一种同步调用,同步调用最大的特点,我个人认为就是你的函数去主动的调用其他函数. 而异步回调机制恰恰相反, 它是你的函数被动的被其他函数所调用</p>
+<h2><a id="_77"></a>函数指针的作用</h2>
+<p>说完以上部分,就再来距举例说明一下函数指针的作用<br>
+<strong>假想场景:</strong><br>
+假设你在项目中负责编写一个函数A, 这个函数B的功能是:</p>
+<ol>
+<li>循环检查, 每一分钟检查一次进程1是否还在运行,</li>
+<li>将进程1的运行状态通过参数传递给另一个函数</li>
+<li>将状态写入日志文件</li>
+</ol>
+<p>以上场景 , 可能会存在多个解决方法, 但这里就利用异步回调的方式来解决一下这个问题<br>
+伪代码:</p>
+<pre><code class="prism language-c"><span class="token comment">//将函数指针以函数参数的形式进行传递</span>
+<span class="token keyword">void</span> <span class="token function">A</span><span class="token punctuation">(</span><span class="token keyword">void</span> <span class="token punctuation">(</span><span class="token operator">*</span>fun<span class="token punctuation">)</span><span class="token punctuation">(</span><span class="token keyword">int</span> status<span class="token punctuation">)</span><span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+	<span class="token keyword">while</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span>
+	<span class="token punctuation">{</span>
+		<span class="token comment">//获取进程1的状态代码......</span>
+		<span class="token function">fun</span><span class="token punctuation">(</span>以整数形式代表的进程<span class="token number">1</span>的状态<span class="token punctuation">)</span><span class="token punctuation">;</span>
+		<span class="token function">Sleep</span><span class="token punctuation">(</span><span class="token number">1000</span><span class="token operator">*</span><span class="token number">60</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+		<span class="token comment">//写入日志文件</span>
+	<span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>不同程序员编写的调用函数A的函数:<br>
+程序员a:</p>
+<pre><code class="prism language-c"><span class="token keyword">void</span> <span class="token function">callback</span><span class="token punctuation">(</span><span class="token keyword">int</span> status<span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+     <span class="token keyword">if</span><span class="token punctuation">(</span>status<span class="token punctuation">)</span>
+	<span class="token comment">//如果发现进程1正在运行, 那就向服务端A发送一条消息</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">getStatus</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+	<span class="token function">A</span><span class="token punctuation">(</span>callback<span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>程序员b:</p>
+<pre><code class="prism language-c"><span class="token keyword">void</span> <span class="token function">oneProcess</span><span class="token punctuation">(</span><span class="token keyword">int</span> status<span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+     <span class="token keyword">if</span><span class="token punctuation">(</span>status<span class="token punctuation">)</span>
+	<span class="token comment">//如果发现进程1没有在运行,那就创建进程1</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">int</span> <span class="token function">checkProcess</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token punctuation">{</span>
+	<span class="token function">A</span><span class="token punctuation">(</span>oneProcess<span class="token punctuation">)</span><span class="token punctuation">;</span>
+	<span class="token keyword">return</span> <span class="token number">0</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>因为我们的函数会不停的去循环检查,所以无法通过返回值的形式来向调用者反馈进程1的状态, 在加上可能会有多个不同的函数利用我们的函数来获取进程1的状态来进行不同的操作</p>
+<p>除此之外,接触过socket编程的同学肯定知道, 服务端在listen后会将accept放置在一个死循环里用于接受客户端的套接字, 假如说我们正在封装一个TCP通信库, 想要把accept接受到的客户端套接字通过返回值的形式传递给第三方调用者明显是不现实的, 但是如果利用了回调机制,那就会变得很容易.</p>
+</div>
+</body>
+
+</html>
