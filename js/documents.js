@@ -26,15 +26,11 @@ function PageInit(){
                 .replace(reg2, "")
                 .replace("<html>", "")
                 .replace("</html>", "")
-                .replace("<html>", "")
                 .replace("<head>", "")
                 .replace("</head>", "")
                 .replace(reg3, "")
                 .replace("</body>", "")
                 .replace("<!DOCTYPE html>", "");
-            console.log(ht);
-            console.log("==========================");
-            console.log(res);
             $("#doc").html(ht);
         }});
 }
