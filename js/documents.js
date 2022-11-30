@@ -20,6 +20,7 @@ function PageInit(){
             // 替换<meta>与<title>标签
             let reg1 = /<title(?:(?!<\/p>).|\n)*?<\/title>/gm;
             let reg2 = /<meta(?:(?!\/>).|\n)*?>/gm;
+            let reg3 = /<body(?:(?!\/>).|\n)*?>/gm;
             let ht = res
                 .replace(reg1, "")
                 .replace(reg2, "")
@@ -28,7 +29,12 @@ function PageInit(){
                 .replace("<html>", "")
                 .replace("<head>", "")
                 .replace("</head>", "")
+                .replace(reg3, "")
+                .replace("</body>", "")
                 .replace("<!DOCTYPE html>", "");
+            console.log(ht);
+            console.log("==========================");
+            console.log(res);
             $("#doc").html(ht);
         }});
 }
