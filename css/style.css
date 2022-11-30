@@ -287,16 +287,14 @@ a.active {
 
 .list_tel {
     margin-top: 30%;
-    width: 70%;
-    margin-left: 15%;
-    margin-right: 15%;
+    width: 100%;
     text-align: center;
 }
 
 .list_tel li {
     list-style: none;
     float: left;
-    margin-left: 50pt;
+    margin-left: 30pt;
 }
 
 .disply-table {
