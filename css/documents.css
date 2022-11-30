@@ -28,25 +28,17 @@
     border: none;
 }
 
-.num {
-    max-width: 60%;
-    margin-left: 20%;
-    margin-right: 20%;
-    height: 5%;
-    color: black;
-    font-size: 5px;
-    text-align: center;
-}
-
 .doc {
     max-width: 60%;
     padding-top: 1%;
     padding-left: 1%;
     padding-right: 1%;
     padding-bottom: 1%;
+    font-size: 1em;
     height: auto;
     margin-left: 20%;
     margin-right: 20%;
+    margin-bottom: 5%;
     background-color: rgb(245, 245, 245);
 }
 

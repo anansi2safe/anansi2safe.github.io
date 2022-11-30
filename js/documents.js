@@ -31,6 +31,7 @@ function PageInit(){
                 .replace(reg3, "")
                 .replace("</body>", "")
                 .replace("<!DOCTYPE html>", "");
+            $("#loading").remove();
             $("#doc").html(ht);
         }});
 }
