@@ -369,13 +369,20 @@ a.active {
 
 .timeline-event:hover .timeline-event-thumbnail {
     min-height: 40pt;
-    ;
     height: 200pt;
 }
 
 .list-arch {
     overflow: hidden;
     height: auto;
+    width: 100%;
+}
+
+.list-arch li a {
+    overflow: hidden;
+    height: auto;
+    width: 100%;
+    text-overflow: ellipsis; 
 }
 
 .timeline-event-copy {
