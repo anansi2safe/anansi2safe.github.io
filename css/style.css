@@ -375,13 +375,13 @@ a.active {
 .list-arch {
     overflow: hidden;
     height: auto;
-    width: 100%;
+    max-width: 100%;
 }
 
 .list-arch li a {
     overflow: hidden;
     height: auto;
-    width: 100%;
+    max-width: 100%;
     text-overflow: ellipsis; 
 }
 
