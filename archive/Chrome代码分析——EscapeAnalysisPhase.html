@@ -9,6 +9,10 @@
 </head>
 
 <body class="stackedit">
+	<a href="../index.html" style="position: fixed; top: 0; left: 2pt; text-align: center;text-decoration-line: none;color: black;font-size: 15px;">
+		<img src="../img/home.png" width="15" height="15" alt="home">
+		<span>HOME PAGE</span>
+	</a>
   <div class="stackedit__html"><p><a href="https://source.chromium.org/chromium/chromium/src/+/main:v8/src/compiler/pipeline.cc;l=1581;bpv=1;bpt=1?q=EscapeAnalysisPh&amp;ss=chromium/chromium/src">Chromium Code</a></p>
 <h1><a id="EscapeAnalysis_1"></a>EscapeAnalysis</h1>
 <p>当v8在处理js代码时通常会将其转化为字节码进行执行，在遇到热点函数时会用Turbofan将其优化转换为JIT代码来执行以此来提高代码执行效率，Turbofan使用了“Sea of Nodes”的概念它将对象及其一些操作与控制流视作节点(node)然后由这些节点组成图，当Turbofan生成机器码时会先进行优化，优化有多个阶段每个阶段会针对这些节点进行优化将不必要的冗余节点优化简略，EscapeAnalysis(逃逸分析)就是众多阶段之一。<br>

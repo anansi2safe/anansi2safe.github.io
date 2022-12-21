@@ -9,6 +9,10 @@
 </head>
 
 <body class="stackedit">
+  <a href="../index.html" style="position: fixed; top: 0; left: 2pt; text-align: center;text-decoration-line: none;color: black;font-size: 15px;">
+    <img src="../img/home.png" width="15" height="15" alt="home">
+    <span>HOME PAGE</span>
+  </a>
   <div class="stackedit__html"><h2><a id="BadUSB_0"></a>BadUSB</h2>
 <p>BadUSB是由arsten Nohl和Jakob Lell共同发现，并在2014年的BlackHat安全大会上公布的USB漏洞。早期的U盘病毒是在正常的U盘中存入一个autorun.inf可以自启动程序的小脚本，来自动运行某些程序，以此来达到木马入侵或者病毒攻击的效果，但毕竟时代在进步，如此简单的攻击方法自然很容易就会被各种杀软以及系统自带的防御系统识别kill掉，而且后来微软也发现了这个安全漏洞以至于之后的windows系统版本默认也是吧autorun关闭掉的，所以这种攻击方法已经显得极其鸡肋，于是乎就出现了另一种USB攻击思路，USB设备芯片中往往会有一块闪存负责存储数据，他的作用就像是我们电脑上的硬盘，而在这块闪存中会预留一部分用于存储设备固件，而这中新的思路就是将恶意代码直接植入进固件中，这样既不会被杀软察觉更不会被kill掉而将这种思路付诸实践的就是BadUSB。</p>
 <p>早期的BadUSB实现方式有两种：<br>
