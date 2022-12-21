@@ -380,7 +380,17 @@ a.active {
     background-color: #425BB5;
 }
 
-.timeline-event:hover .timeline-event-thumbnail {
+.timeline-event:hover .timeline-event-thumbnail-20 {
+    min-height: 40pt;
+    height: 150pt;
+}
+
+.timeline-event:hover .timeline-event-thumbnail-21 {
+    min-height: 40pt;
+    height: 250pt;
+}
+
+.timeline-event:hover .timeline-event-thumbnail-22 {
     min-height: 40pt;
     height: 350pt;
 }
@@ -448,7 +458,7 @@ a.active {
     height: 1em;
 }
 
-.timeline-event-thumbnail {
+.timeline-event-thumbnail-20 {
     -moz-transition: all 0.5s ease-in-out;
     -o-transition: all 0.5s ease-in-out;
     -webkit-transition: all 0.5s ease-in-out;
@@ -465,10 +475,51 @@ a.active {
     display: inline-block;
 }
 
-.timeline-event-thumbnail h3 {
+.timeline-event-thumbnail-21 {
+    -moz-transition: all 0.5s ease-in-out;
+    -o-transition: all 0.5s ease-in-out;
+    -webkit-transition: all 0.5s ease-in-out;
+    -webkit-transition: all 0.5s ease-in-out;
+
+    overflow: hidden;
+    height: 40pt;
+    transition: all 0.5s ease-in-out;
+    color: rgb(0, 0, 0);
+    font-size: 12px;
+    display: inline-block;
+    margin-bottom: 1.2em;
+    cursor: pointer;
+    display: inline-block;
+}
+
+.timeline-event-thumbnail-22 {
+    -moz-transition: all 0.5s ease-in-out;
+    -o-transition: all 0.5s ease-in-out;
+    -webkit-transition: all 0.5s ease-in-out;
+    -webkit-transition: all 0.5s ease-in-out;
+
+    overflow: hidden;
+    height: 40pt;
+    transition: all 0.5s ease-in-out;
+    color: rgb(0, 0, 0);
+    font-size: 12px;
+    display: inline-block;
+    margin-bottom: 1.2em;
+    cursor: pointer;
+    display: inline-block;
+}
+
+.timeline-event-thumbnail-20 h3 {
     font-weight: bold;
 }
 
+.timeline-event-thumbnail-21 h3 {
+    font-weight: bold;
+}
+
+.timeline-event-thumbnail-22 h3 {
+    font-weight: bold;
+}
 
 /* projects section
 ==================================================*/
