@@ -333,6 +333,17 @@ a.active {
     padding: 100px 0;
     background: #f3f3f3;
     min-height: 120vh;
+    height: auto;
+}
+
+.col-md-12 {
+    height: auto;
+    min-width: 100%;
+}
+
+.container {
+    height: auto;
+    min-width: 100%;
 }
 
 .experience-row {
@@ -344,6 +355,8 @@ a.active {
     padding-left: 0;
     list-style: none;
     position: relative;
+    width: 100%;
+    height: auto;
 }
 
 .timeline:before {
@@ -369,7 +382,7 @@ a.active {
 
 .timeline-event:hover .timeline-event-thumbnail {
     min-height: 40pt;
-    height: 200pt;
+    height: 300pt;
 }
 
 .list-arch {
@@ -378,9 +391,14 @@ a.active {
     max-width: 100%;
 }
 
+.list-arch li {
+    min-height: 20pt;
+    max-width: 100%;
+}
+
 .list-arch li a {
     overflow: hidden;
-    height: auto;
+    height: 100%;
     max-width: 100%;
     text-overflow: ellipsis; 
 }
@@ -429,14 +447,14 @@ a.active {
 }
 
 .timeline-event-thumbnail {
-    -moz-transition: 0.5s ease-in 0.1s;
-    -o-transition: 0.5s ease-in 0.1s;
-    -webkit-transition: 0.5s ease-in;
-    -webkit-transition-delay: 0.1s;
-    -webkit-transition: 0.5s ease-in 0.1s;
+    -moz-transition: all 0.5s ease-in-out;
+    -o-transition: all 0.5s ease-in-out;
+    -webkit-transition: all 0.5s ease-in-out;
+    -webkit-transition: all 0.5s ease-in-out;
+
     overflow: hidden;
     height: 40pt;
-    transition: 0.5s ease-in 0.1s;
+    transition: all 0.5s ease-in-out;
     color: rgb(0, 0, 0);
     font-size: 12px;
     display: inline-block;
