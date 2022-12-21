@@ -382,18 +382,20 @@ a.active {
 
 .timeline-event:hover .timeline-event-thumbnail {
     min-height: 40pt;
-    height: 300pt;
+    height: 350pt;
 }
 
 .list-arch {
     overflow: hidden;
     height: auto;
     max-width: 100%;
+    text-overflow: ellipsis; 
 }
 
 .list-arch li {
     min-height: 20pt;
     max-width: 100%;
+    text-overflow: ellipsis; 
 }
 
 .list-arch li a {
