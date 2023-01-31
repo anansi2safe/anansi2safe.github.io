@@ -1,0 +1,117 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chrome代码分析——TyperPhase.md</title>
+  <link rel="stylesheet" href="https://stackedit.cn/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h1 id="typerphase"><span class="prefix"></span><span class="content">TyperPhase</span><span class="suffix"></span></h1>
+<p>此阶段会对生成的图进一步优化，并为节点设置相应的类型与范围以便于在后续的优化步骤中消除一些边界检查：<br>
+Typer阶段执行之前：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/DG2KEQvITMOgiDri.png" alt="输入图片说明"><br>
+Typer阶段执行之后：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/VDDYOy8Ps3XP3FF1.png" alt="输入图片说明"></p>
+<h1 id="代码分析"><span class="prefix"></span><span class="content">代码分析</span><span class="suffix"></span></h1>
+<p>此阶段由TyperPhase::Run函数开始，Run函数会先初始化一个节点向量roots随后从图的缓存中朝向量中添加节点元素：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/OoqPup6XVUkn91Ka.png" alt="输入图片说明"><br>
+cache_.GetCachedNodes函数会从缓存中查找所有符合int32 NumberConstant等Constant类型的节点，然后将这些节点集中放入相应节点向量：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/gvio6W0mOhNroAi7.png" alt="输入图片说明"><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/6kuvhkz4RJDaiiJF.png" alt="输入图片说明"><br>
+退出GetCachedNodes函数后，还会创建True与False两个HeapConstant节点放入节点向量：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/UL5qF40NmY1rQ8x3.png" alt="输入图片说明"><br>
+之后会创建循环归纳变量对象并进行处理，在循环归纳变量对象中可能会保存多个独立归纳变量对象，随后会进入归纳变量对象存入循环归纳变量中的归纳变量向量中：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/hh1XkmvAA3IqBsOI.png" alt="输入图片说明"><br>
+LoopVariableOptimizer::Run函数会通过队列从start结点开始从上往下开始遍历处理:<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/pWWAGcMsLvD85i39.png" alt="输入图片说明"><br>
+随后进入循环，当队列不为空时就继续循环，在循环中先获取队列中最先被放入的节点元素，然后再将该节点从队列中弹出并在queued中将该节点标记为false表示已出队列：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/vV1OUbth5s3fCbTG.png" alt="输入图片说明"><br>
+之后先判断是否是Loop节点如果是则inputs_end为1，否则就获取当前节点所有输入中的控制节点个数，之后会通过当前节点获取其控制节点，然后再尝试去简化列表中查找控制节点以判断是否已被简化，如果有所有控制节点已被简化过就去访问节点，如果没有就跳过后续步骤直接进行下一次迭代：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/Vx5giEe7Ue3C8CSF.png" alt="输入图片说明"><br>
+节点访问处理函数VisitNode会根据节点的类型分别进入其相对应的节点处理函数：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/SDIIeiD02wsQ4nIK.png" alt="输入图片说明"><br>
+在此过程中会遇到loop节点在访问处理loop节点时会先通过loop节点来查找对应的phi节点，查找逻辑大致就是遍历所有loop节点use控制边的use节点找到其中为phi的节点：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/Xz4bcumRdeL9zRCh.png" alt="输入图片说明"><br>
+随后通过找到的phi节点创建新的归纳变量对象将其对应的phi节点id作为key存入循环归纳变量中的归纳变量列表中：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/Z4sQ1aoIk70U2cyV.png" alt="输入图片说明"><br>
+而在创建归纳变量时会为其设置对应的phi(25)、effect_phi(23)、arith(54)、increment(42)、init_value(9)节点，phi节点就是在循环中需要递加或递减的变量，effect_phi为效果节点，arith节点为需要进行的运算节点例如加减乘除，increment为每次需要递加、递减或者乘除的数值例如i++就是+1，increment节点就是值为1的NumberConstant节点，init_value节点就是初始值节点，归纳变量中还会有上限或下限界限对象会在之后的步骤中进行处理：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/tgc1q6zYxFn2KJq0.png" alt="输入图片说明"><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/UpxWCwV9CvX75ADd.png" alt="输入图片说明"><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/wn9JQcmv9vtG3Dyg.png" alt="输入图片说明"><br>
+处理过节点后就将该节点存入简化列表，将其标记为已简化：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/Gi3QRLiCQCLXv279.png" alt="输入图片说明"><br>
+之后迭代遍历处理其所有use边，也就是ouput边，在循环中会先判断当前边是否是控制边并且边的from一侧是否有控制节点如果两个条件都满足那就继续执行，随后再判断from一侧的use节点是否是Loop节点并且当前边的下标是否不为0如果条件满足就进入VisitBackedge函数，否则会去判断当前use节点在ququed列表中是否为false，如果是就将当前use放入队列并将其对应的queued列表中的元素值设为true以便于下一次循环继续处理：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/Mo7kj5VppdNAMu4E.png" alt="输入图片说明"><br>
+VisitBackedge会先判断传入的loop节点是否只具有两个控制输入，如果控制输入节点不等于2那就直接退出：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/pdSSHhrX3oAKYN1u.png" alt="输入图片说明"><br>
+当loop节点检查通过后会根据传入的from节点遍历获取约束对象并为对应的归纳变量对象追加上限或下限限制对象：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/BX1vXLUkpG7nMa7p.png" alt="输入图片说明"><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/VjVTdRrHdm2pOfTb.png" alt="输入图片说明"><br>
+处理的逻辑主要是先通过limits_获取分支约束条件，随后如果约束条件的左侧为Phi并且其控制输入节点为loop节点，那就通过left节点获取其对应的变量对象也就是在循环中需要进行递加的变量，随后将约束条件的右侧节点作为上限节点，而当约束条件的右侧为Phi时会通过的步骤，只是会将约束条件的左侧节点设为下限节点，当循环条件为<code>for(let i = 0; i &lt; 0x3000; i++)</code>时：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/AZ1qG1Uen5GLij4M.png" alt="输入图片说明"><br>
+当循环条件为<code>for(let i = 0x3000; i &gt; 0; i--)</code>时：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/DheB1z4jCtQmMRzA.png" alt="输入图片说明"><br>
+总结来讲VisitBackedge函数用于为归纳变量设置上限或者下限节点并添加限制对象，LoopVariableOptimizer::Run函数用于将所有节点放入队列并依次进行访问进行简化处理并在最后为归纳变量添加限制对象，当LoopVariableOptimizer::Run函数执行结束后将回到TyperPhase::Run函数中，随后会创建typer检查堆对象，并正式的进入类型处理函数Typer::Run：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/WyFJnxc7e54fNv53.png" alt="输入图片说明"><br>
+Typer::Run函数会先检查前面创建的循环归纳变量对象是否为空，如果不为空的话就调用LoopVariableOptimizer::ChangeToInductionVariablePhis函数：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/Rj2qTrpbvPBREEgm.png" alt="输入图片说明"><br>
+LoopVariableOptimizer::ChangeToInductionVariablePhis函数会遍历获取循环归纳变量中保存的所有归纳变量对象：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/QnbwpiJM9Cx2It1A.png" alt="输入图片说明"><br>
+随后判断归纳变量是否有限制对象，如果没有的话就进行下一次遍历：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/DPxqe9tmVOFEJEpP.png" alt="输入图片说明"><br>
+然后为归纳变量的phi节点插入增量节点与上下限节点：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/gzhADtN4RdRcUg93.png" alt="输入图片说明"><br>
+最后将phi节点op替换为InductionVariablePhi：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-12/iulXGEgbsAvb9Nit.png" alt="输入图片说明"><br>
+之后退出ChangeToInductionVariablePhis函数，之后Typer::Run函数创建typer::Visitor对象，此对象是Typer阶段主要的类型优化对象，创建完后就会将其存入graph简化列表：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/ccpM6mVhMIMpNf9O.png" alt="输入图片说明"><br>
+之后调用ReduceNode函数对roots中的所有Constant节点进行处理，ReduceNode函数中会从下往上遍历处理节点，而通常情况下Constant节点是树的末端节点不会再有input节点：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/3odVYGu2TQoiHA2w.png" alt="输入图片说明"><br>
+由于Constant节点没有input节点所以此处是在调用ReduceNode函数单独处理这些Constant节点，处理完roots中的constant节点后调用ReduceGraph函数去优化图，ReduceGraph函数实际上也是调用ReduceNode函数实现，只不过传入的是end节点然后从end结点开始从下往上遍历访问所有节点并调用简化列表中的简化函数处理节点：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/MRpK0O3Y0JmgXmmG.png" alt="输入图片说明"><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/PIU9462rHyK1mpnN.png" alt="输入图片说明"><br>
+之后的执行步骤与其他阶段基本一致通过DFS算法与栈结构从下往上遍历处理节点，ReduceNode会调用ReduceTop函数：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/8djXbmAFJofYO3VR.png" alt="输入图片说明"><br>
+ReduceTop函数先处理传入节点的输入节点，将其input节点压入栈以便后续处理：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/oupKgHoAtsrIGJ1e.png" alt="输入图片说明"><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/xZdDFD2IhSYffdFi.png" alt="输入图片说明"><br>
+然后保存简化前最大的节点id，之后调用Reduce简化函数：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/UI4LMxNVkyeyJ8KX.png" alt="输入图片说明"><br>
+Reduce函数会遍历执行简化函数列表中的对象Reduce函数，在此处列表中只有Typer::Visitor对象，所以Typer::Visitor::Reduce函数将被执行：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/pq0GbXSBdHy7nQwY.png" alt="输入图片说明"><br>
+Typer::Visitor::Reduce函数函数先检查传入节点是否有值输出，当有值输出时为其更新类型才有意义否则直接返回NoChange：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/AUnpnDGBS5W4PWsI.png" alt="输入图片说明"><br>
+当有值输出时则调用UpdateType函数，UpdateType函数在通过调用SetType函数将节点类型更新到节点中，当遇到Phi或者前面处理过的循环归纳变量InductionVariablePhi节点时就为其分配一个比原先设定范围稍大的范围用于在循环中加快<a href="https://baike.baidu.com/item/%E5%AE%9A%E7%82%B9%E8%AE%A1%E7%AE%97/12721120">定点计算</a>：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-13/QCo6sGIj4WUD1TPN.png" alt="输入图片说明"><br>
+Weaken函数的原理大概是将节点本身已经有的Type previous_type(通过GetType函数获得)与在Typer阶段新获取的Type current_type(通过TypeNode函数获得)传入，如果Type与整型无关就直接将新获取的Type current返回，除此之外当current与previous都是无效类型时也会将current返回：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-17/fyOZDS9byn63TicQ.png" alt="输入图片说明"><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-17/C4HMFB444MPkeqT9.png" alt="输入图片说明"><br>
+除去以上两种情况，Weaken函数会先去获取current范围的最大值与最大与最小值作为新的范围值new_min与new_max，然后将current的最大最小值与previous的最大最小值进行比较，如果不相同就将新的范围值设为无穷(正无穷或负无穷)，随后遍历kWeakenMinLimits与kWeakenMaxLimits列表，从列表中找到最接近current范围值的数作为新的范围值：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-17/dZbfnNsSoC0xOpLW.png" alt="输入图片说明"><br>
+kWeakenMinLimits与kWeakenMaxLimits列表定义在Weanken函数中其中的数都是二的倍数：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-17/d7Lu00SPeAuRJMzE.png" alt="输入图片说明"><br>
+通过以上分析可以看出UpdateType函数会通过TypeNode函数创建新的节点范围类型，并且还会通过NodeProperties::GetType函数来获取预先已经设定好的范围类型，GetType函数没什么好说的，它就是直接通过获取node的成员变量type_，然后需要对创建新的范围类型的函数TypeNode进行分析，TypeNode函数的代码不是很直观存在大量的宏，总结其功能大概就是会根据传入的节点动态的选择要调用的函数并返回，对于单纯的NumberConstant或Phi一类不存在一些复杂运算的节点将会去调用Typer::Visitor::Type###，例如当处理NumberConstant节点时就会调用Typer::Visitor::TypeNumberConstant函数，而当处理一些如SpeculativeSafeIntegerAdd存在复杂运算的节点时将会去调用OperationTyper::###函数，例如上面提到的SpeculativeSafeIntegerAdd节点，当遇到该节点时就会去调用OperationTyper::SpeculativeSafeIntegerAdd函数：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-17/Kz5TTqSCXxlRprPN.png" alt="输入图片说明"><br>
+因为具体的节点类型处理函数有很多无法基本上每个节点对应一个函数，所以不一一对每个函数做分析，先以前面提到过的循环归纳变量节点InductionVariablePhi为例进行分析，当遇到InductionVariablePhi节点时会去调用Typer::Visitor::TypeInductionVariablePhi函数，TypeInductionVariablePhi函数会先获取当前节点的控制节点，InductionVariablePhi控制节点通常只有一个那就是Loop节点，之后获取Loop节点的控制节点总数，随后获取InductionVariablePhi节点的两个操作数节点的类型，由于InductionVariablePhi节点是通过phi节点转换得来的的，其下标为0的input为循环递加变量的初始值节点，下标为2的input为循环递加变量的增量节点：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-17/xYUxU9xvF91gwmAP.png" alt="输入图片说明"><br>
+当两个操作数满足以下条件时将会将InductionVariablePhi节点恢复到正常的phi节点：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-17/CjASZO4cMZ62Z33P.png" alt="输入图片说明"><br>
+否则将会通过之后的步骤为Phi节点求出最大最小值范围，在获取范围时会先通过循环归纳变量对象查找InductionVariablePhi节点对应的归纳变量对象，并通过归纳变量对象得到节点所对应的算术类型：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-30/fjdB34VDOQcawhKt.png" alt="输入图片说明"><br>
+之后先将最大最小值初始化为正无穷与负无穷，并根据归纳变量对象的运算类型(加或减)来决定其增量的最大与最小值，当运算符是加法时增量的最大最小值是正数大于0，当时减法时增量最大最小值是负数小于0：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-30/nq9Mk6Llfdly1TEd.png" alt="输入图片说明"><br>
+再然后会分为三种情况来处理范围值，当增量最小值是正数或0时说明归纳变量的运算类型是加法(例如i++)，此时最小值是固定的直接从初始值中获取，而最大值通过之前提到的归纳变量对象中的上限限制对象中获取，大致逻辑为通过循环遍历获取所有的上限，然后判断上限对象的类型是否为整型如果不是直接跳过之后的步骤继续循环获取下一个限制对象，否则先判断上限类型是否为None如果是则直接从初始值中获取最大值否则从上限对象中获取最大值，如果是严格模式将会将获取到的限制最大值再减一，然后用增量最大值与上限最大值相加并与现有的最大值进行比较，当处理第一个上限对象时现有的最大值是正无穷，也就是说当只有一个上限对象或处理第一个限制对象时无论如何获取的都是增量最大值与上限最大值相加得到的结果，当有多个上限对象时选最小的限制对象最大值与增量最大值相加作为范围最大值max，最后再用循环中得到的范围最大值max与初始最大值比较从中获取最大的数作为最终的范围最大值：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-31/aT0qVhPFz817Mw7M.png" alt="输入图片说明"><br>
+当遇到增量最大值是负数或0时说明归纳变量的运算类型是减法(例如i–)，其余的算法逻辑与前面一种情况用完全相反的方法去获取：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-31/3KorgTmlezjsNFUB.png" alt="输入图片说明"><br>
+当不是以上任何一种的情况下直接将范围最大最小值设为正无穷与负无穷，最终TypeInductionVariablePhi函数通过范围最大最小值创建范围对象并返回：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-31/RJeVclnEm2qGObjF.png" alt="输入图片说明"><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-31/DxFkimLnwV2AuaAf.png" alt="输入图片说明"><br>
+此处对InductionVariablePhi节点的类型优化函数进行分析，对于其他节点都有具体对应的处理函数，找到其对应的处理函数即可。</p>
+</div>
+</body>
+
+</html>
