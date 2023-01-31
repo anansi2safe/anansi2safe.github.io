@@ -417,10 +417,9 @@ a.active {
 
 .timeline-event-copy {
     padding: 1.5em;
-    position: relative;
     top: -1.875em;
     left: 4em;
-    width: 100%;
+    width: auto;
 }
 
 .timeline-event-copy h3 {
