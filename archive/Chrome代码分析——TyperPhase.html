@@ -9,6 +9,10 @@
 </head>
 
 <body class="stackedit">
+  <a href="../index.html" style="position: fixed; top: 0; left: 2pt; text-align: center;text-decoration-line: none;color: black;font-size: 15px;">
+    <img src="../img/home.png" width="15" height="15" alt="home">
+    <span>HOME PAGE</span>
+  </a>
   <div class="stackedit__html"><h1 id="typerphase"><span class="prefix"></span><span class="content">TyperPhase</span><span class="suffix"></span></h1>
 <p>此阶段会对生成的图进一步优化，并为节点设置相应的类型与范围以便于在后续的优化步骤中消除一些边界检查：<br>
 Typer阶段执行之前：<br>
@@ -107,10 +111,11 @@ kWeakenMinLimits与kWeakenMaxLimits列表定义在Weanken函数中其中的数�
 <img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-31/aT0qVhPFz817Mw7M.png" alt="输入图片说明"><br>
 当遇到增量最大值是负数或0时说明归纳变量的运算类型是减法(例如i–)，其余的算法逻辑与前面一种情况用完全相反的方法去获取：<br>
 <img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-31/3KorgTmlezjsNFUB.png" alt="输入图片说明"><br>
-当不是以上任何一种的情况下直接将范围最大最小值设为正无穷与负无穷，最终TypeInductionVariablePhi函数通过范围最大最小值创建范围对象并返回：<br>
+当不是以上任何一种的情况下直接将范围最大最小值设为正无穷与负无穷，最终TypeInductionVariablePhi函数通过范围最大最小值创建范围对象并返回：s<br>
 <img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-31/RJeVclnEm2qGObjF.png" alt="输入图片说明"><br>
 <img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-01-31/DxFkimLnwV2AuaAf.png" alt="输入图片说明"><br>
-此处对InductionVariablePhi节点的类型优化函数进行分析，对于其他节点都有具体对应的处理函数，找到其对应的处理函数即可。</p>
+此处对InductionVariablePhi节点的类型优化函数进行分析，对于其他节点都有具体对应的处理函数，找到其对应的处理函数即可。对于InductionVariablePhi节点会在Typer::Run函数的最后进行检查并通过LoopVariableOptimizer::ChangeToPhisAndInsertGuards()函数将其重新进行简化恢复成Phi节点：<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2023-02-01/9lmyatosyRRpryfb.png" alt="输入图片说明"></p>
 </div>
 </body>
 
