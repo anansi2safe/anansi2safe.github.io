@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Android binder漏洞研究(一)——环境搭建</title>
+  <link rel="stylesheet" href="https://stackedit.cn/style.css" />
+</head>
+
+<body class="stackedit">
+  <a href="../index.html"
+		style="position: fixed; top: 0; left: 2pt; text-align: center;text-decoration-line: none;color: black;font-size: 15px;">
+		<img src="../img/home.png" width="15" height="15" alt="home">
+		<span>HOME PAGE</span>
+	</a>
+  <div class="stackedit__html"><h2 id="内核镜像"><span class="prefix"></span><span class="content">内核镜像</span><span class="suffix"></span></h2>
+<p>注意以下内容全部都需要使用代理，所以先设置好网络环境：</p>
+<pre class=" language-bash"><code class="prism  language-bash"><span class="token function">export</span> http_proxy<span class="token operator">=</span><span class="token operator">&lt;</span>Your proxy<span class="token operator">&gt;</span>
+<span class="token function">export</span> https_proxy<span class="token operator">=</span><span class="token operator">&lt;</span>Your proxy<span class="token operator">&gt;</span>
+<span class="token function">git</span> config --global http.proxy <span class="token operator">&lt;</span>Your proxy<span class="token operator">&gt;</span>
+<span class="token function">git</span> config --global https.proxy <span class="token operator">&lt;</span>Your proxy<span class="token operator">&gt;</span>
+</code></pre>
+<p>参考：<a href="https://source.android.com/docs/setup/build/building-kernels?hl=zh-cn">Android kernel build</a></p>
+<h3 id="1.源码获取"><span class="prefix"></span><span class="content">1.源码获取</span><span class="suffix"></span></h3>
+<pre class=" language-bash"><code class="prism  language-bash">$ repo init -u https://android.googlesource.com/kernel/manifest -b common-android12-5.10
+$ repo <span class="token function">sync</span> -d
+</code></pre>
+<p>源码获取成功后你应该在项目根目录下看到如下内容：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">ls</span>
+build   common-modules  kernel  prebuilts         tools
+common  hikey-modules   prebuilts-master
+</code></pre>
+<p><a href="https://android.googlesource.com/kernel/manifest/+refs">内核分支</a></p>
+<h3 id="2.内核编译"><span class="prefix"></span><span class="content">2.内核编译</span><span class="suffix"></span></h3>
+<p>android13开始引入了<a href="https://bazel.build?hl=zh-cn">Bazel</a> 构建内核的功能，具体查看官方文档，这里我主要使用android12，所以使用旧的build.sh方法。<br>
+源码及编译工具获取完成后，使用如下命令开始编译：</p>
+<pre class=" language-bash"><code class="prism  language-bash">BUILD_CONFIG<span class="token operator">=</span>common/build.config.self.x86_64 ./build/build.sh
+</code></pre>
+<p>这里的common/build.config.self.x86_64编译脚本是我自己写的，当然官方也有提供，可以直接使用官方的，假设官方提供的脚本无法满足你的编译参数要求也可以像我一样自己编写，build.config.self.x86_64具体内容：</p>
+<pre class=" language-bash"><code class="prism  language-bash"><span class="token keyword">.</span> <span class="token variable">${ROOT_DIR}</span>/<span class="token variable">${KERNEL_DIR}</span>/build.config.common
+<span class="token keyword">.</span> <span class="token variable">${ROOT_DIR}</span>/<span class="token variable">${KERNEL_DIR}</span>/build.config.x86_64
+DEFCONFIG<span class="token operator">=</span>gki_defconfig
+POST_DEFCONFIG_CMDS<span class="token operator">=</span><span class="token string">"check_defconfig &amp;&amp; update_self_config"</span>
+KERNEL_DIR<span class="token operator">=</span>common
+<span class="token keyword">function</span> update_self_config<span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token variable">${KERNEL_DIR}</span>/scripts/config --file <span class="token variable">${OUT_DIR}</span>/.config \
+         -e CONFIG_KGDB \
+         -e CONFIG_HAVE_ARCH_KGDB \
+         -e CONFIG_KGDB_HONOUR_BLOCKLIST \
+         -e CONFIG_KGDB_KDB \
+         -e CONFIG_DEBUG_INFO \
+         -e CONFIG_DEBUG_INFO_DWARF4 \
+         -e CONFIG_VT \
+         -e CONFIG_VT_CONSOLE \
+         -e CONFIG_VT_CONSOLE_SLEEP \
+         -e CONFIG_KASAN \
+         -e CONFIG_KASAN_INLINE \
+         -e CONFIG_KCOV \
+         -e CONFIG_PANIC_ON_WARN_DEFAULT_ENABLE \
+         -d CONFIG_RANDOMIZE_BASE \
+         --set-val CONFIG_FRAME_WARN 0 \
+         -d LTO_CLANG_THIN \
+         -d LTO_CLANG_FULL \
+         -d CFI_PERMISSIVE \
+         -d CFI_CLANG \
+         -d SHADOW_CALL_STACK
+    <span class="token punctuation">(</span>cd <span class="token variable">${OUT_DIR}</span> <span class="token operator">&amp;&amp;</span> \
+     <span class="token function">make</span> <span class="token variable">${CC_LD_ARG}</span> O<span class="token operator">=</span><span class="token variable">${OUT_DIR}</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>编译完成后会有一个out目录，编译结果就保存在里面，以我的为例，编译结果保存在<code>out/android12-5.10/dist/</code>中，此时在此目录中你应该看到：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">ls</span> out/android12-5.10/dist/
+abi.prop               kernel-uapi-headers.tar.gz  System.map         vmlinux
+bzImage                modules.builtin             test_mappings.zip  vmlinux.symvers
+kernel-headers.tar.gz  modules.builtin.modinfo     virtio_mem.ko
+</code></pre>
+<p>其中bzImage就是最重要的内核镜像，vmlinux可以便于我们调试。<br>
+现在还需要编译ko模块，与编译内核镜像方法差不多，我这里直接使用了官方提供的编译脚本：</p>
+<pre class=" language-bash"><code class="prism  language-bash">BUILD_CONFIG<span class="token operator">=</span>common-modules/virtual-device/build.config.virtual_device_kgdb.x86_64 ./build/build.sh
+</code></pre>
+<p>编译结果与内核镜像存放在同一目录下，模块编译完成后dist目录下应该会多出很多内容，主要用到的就是initramfs.img：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">ls</span> out/android12-5.10/dist/
+abi.prop                    modules.load              vendor_boot.modules.load
+ac97_bus.ko                 nd_virtio.ko              vhci-hcd.ko
+btintel.ko                  net_failover.ko           virtio_balloon.ko
+btrtl.ko                    psmouse.ko                virtio_blk.ko
+btusb.ko                    pulse8-cec.ko             virtio_console.ko
+bzImage                     rtc-test.ko               virtio_dma_buf.ko
+cfg80211.ko                 slcan.ko                  virtio-gpu.ko
+dummy-cpufreq.ko            snd-ac97-codec.ko         virtio_input.ko
+failover.ko                 snd-hda-codec-generic.ko  virtio_mem.ko
+gnss-cmdline.ko             snd-hda-codec.ko          virtio_mmio.ko
+gnss-serial.ko              snd-hda-codec-realtek.ko  virtio_net.ko
+gs_usb.ko                   snd-hda-core.ko           virtio_pci.ko
+hci_vhci.ko                 snd-hda-intel.ko          virtio_pmem.ko
+initramfs.img               snd-intel8x0.ko           virtio-rng.ko
+kernel-headers.tar.gz       snd-intel-dspcfg.ko       virtio_snd.ko
+kernel-uapi-headers.tar.gz  system_heap.ko            virt_wifi.ko
+ledtrig-audio.ko            System.map                virt_wifi_sim.ko
+lzo.ko                      test_mappings.zip         vmlinux
+lzo-rle.ko                  test_meminit.ko           vmlinux.symvers
+mac80211_hwsim.ko           test_stackinit.ko         vmw_vsock_virtio_transport.ko
+mac80211.ko                 tpm.ko                    zram.ko
+md-mod.ko                   tpm_vtpm_proxy.ko         zsmalloc.ko
+modules.builtin             usbip-core.ko
+modules.builtin.modinfo     vcan.ko
+</code></pre>
+<p>如果获取源码后发现小版本不是你想要的小版本，比如我想要的内核版本是5.10.136，如果直接按照我上面的方法获取到的内核源码实际上是5.10.237的，现在我想要136小版本的源码，那我就可以直接cd进common目录然后直接使用<code>git checkout -b</code>来切换内核小版本，就目前来讲这么做我还没遇到过问题，应该是可以的，如果真要说可能会遇到什么问题，那就是在模拟器中运行时可能会因为版本不匹配出现问题，但我目前还没遇到，等遇到再说吧。</p>
+<p>编译过程没有太多问题，只要网络与存储空间没问题，基本上按照官方文档写的去做，不会有什么问题。</p>
+<h2 id="cuttlefish模拟器"><span class="prefix"></span><span class="content">Cuttlefish模拟器</span><span class="suffix"></span></h2>
+<p>参考资料：<a href="https://source.android.com/docs/devices/cuttlefish/get-started?hl=zh-cn">Cuttlefish</a></p>
+<h3 id="1.环境检查"><span class="prefix"></span><span class="content">1.环境检查</span><span class="suffix"></span></h3>
+<p>一开始我本来想直接用android studio的emulator模拟器，然后将它下载的官方镜像替换为我编译的同版本内核镜像直接运行，但是有各种问题，不成功，所以最终还是使用Cuttlefish，Cuttlefish的安装配置会麻烦一些，坑也比较多。<br>
+先确保可以在基于内核的虚拟机 (KVM) 上实现虚拟化：<br>
+x86_64</p>
+<pre class=" language-bash"><code class="prism  language-bash"><span class="token comment">#最后应该返回一个非0值，否则就是有问题</span>
+$ <span class="token function">grep</span> -c -w <span class="token string">"vmx\|svm"</span> /proc/cpuinfo
+</code></pre>
+<p>arm64</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">find</span> /dev -name kvm
+</code></pre>
+<h3 id="2.编译"><span class="prefix"></span><span class="content">2.编译</span><span class="suffix"></span></h3>
+<p>安装环境依赖：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">sudo</span> apt <span class="token function">install</span> -y <span class="token function">git</span> devscripts equivs config-package-dev debhelper-compat golang curl
+</code></pre>
+<p>获取源码：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">git</span> clone https://github.com/google/android-cuttlefish
+</code></pre>
+<p>开始编译：</p>
+<pre class=" language-bash"><code class="prism  language-bash"><span class="token function">cd</span> android-cuttlefish
+tools/buildutils/build_packages.sh
+</code></pre>
+<h3 id="3.问题"><span class="prefix"></span><span class="content">3.问题</span><span class="suffix"></span></h3>
+<p>之后有可能会出现大量的网络问题，首先是<code>tools/buildutils/installbazel.sh</code>执行时出现错误（具体错误提示我忘记了，好像是“Failed to connect to bazel.build port 443 after 294885 ms: 连接超时“什么的），如果遇到直接修改<code>installbazel.sh</code>脚本：</p>
+<pre class=" language-bash"><code class="prism  language-bash"><span class="token comment"># 关键添加内容</span>
+<span class="token function">export</span> http_proxy<span class="token operator">=</span>http://127.0.0.1:12334
+<span class="token function">export</span> https_proxy<span class="token operator">=</span>http://127.0.0.1:12334
+<span class="token function">export</span> JAVA_TOOL_OPTIONS<span class="token operator">=</span><span class="token string">'-Djava.net.useSystemProxies=true'</span>
+<span class="token comment"># 原有内容</span>
+<span class="token keyword">set</span> -e
+
+<span class="token keyword">function</span> install_bazel_x86_64<span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">echo</span> <span class="token string">"Installing bazel"</span>
+  apt <span class="token function">install</span> apt-transport-https curl gnupg -y
+  curl -fsSL https://bazel.build/bazel-release.pub.gpg <span class="token operator">|</span> gpg --dearmor <span class="token operator">&gt;</span>bazel-archive-keyring.gpg
+  <span class="token function">mv</span> bazel-archive-keyring.gpg /usr/share/keyrings
+  <span class="token keyword">echo</span> <span class="token string">"deb [arch=amd64 signed-by=/usr/share/keyrings/bazel-archive-keyring.gpg] https://storage.googleapis.com/bazel-apt stable jdk1.8"</span> <span class="token operator">|</span> <span class="token function">tee</span> /etc/apt/sources.list.d/bazel.list
+  <span class="token comment"># bazel needs the zip command to gather test outputs but doesn't depend on it</span>
+  <span class="token function">apt-get</span> update <span class="token operator">&amp;&amp;</span> <span class="token function">apt-get</span> <span class="token function">install</span> -y bazel <span class="token function">zip</span> unzip
+<span class="token punctuation">}</span>
+
+<span class="token keyword">function</span> install_bazel_aarch64<span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  BAZELISK_VERSION<span class="token operator">=</span>v1.19.0
+  apt <span class="token function">install</span> <span class="token function">wget</span>
+  tmpdir<span class="token operator">=</span><span class="token string">"<span class="token variable"><span class="token variable">$(</span>mktemp -t -d bazel_installer_XXXXXX<span class="token variable">)</span></span>"</span>
+  <span class="token function">trap</span> <span class="token string">"rm -rf <span class="token variable">$tmpdir</span>"</span> EXIT
+  <span class="token function">pushd</span> <span class="token string">"<span class="token variable">${tmpdir}</span>"</span>
+  <span class="token function">wget</span> <span class="token string">"https://github.com/bazelbuild/bazelisk/releases/download/<span class="token variable">${BAZELISK_VERSION}</span>/bazelisk-linux-arm64"</span>
+  <span class="token function">mv</span> bazelisk-linux-arm64 /usr/local/bin/bazel
+  <span class="token function">chmod</span> 0755 /usr/local/bin/bazel
+  <span class="token function">popd</span>
+<span class="token punctuation">}</span>
+
+install_bazel_<span class="token variable"><span class="token variable">$(</span><span class="token function">uname</span> -m<span class="token variable">)</span></span>
+</code></pre>
+<p>主要就是增加了代理，之后有可能会在Analyzing阶段下载依赖是不断出现连接超时的问题，错误输出大概可能如下：</p>
+<pre class=" language-bash"><code class="prism  language-bash">
+Analyzing: target //cuttlefish/package:cvd <span class="token punctuation">(</span>2 packages loaded, 23220 targets configured<span class="token punctuation">)</span>
+
+Analyzing: target //cuttlefish/package:cvd <span class="token punctuation">(</span>2 packages loaded, 23220 targets configured<span class="token punctuation">)</span>
+
+WARNING: Download from https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz failed: class java.io.IOException Connect timed out
+WARNING: Download from https://github.com/google/boringssl/releases/download/0.20241024.0/boringssl-0.20241024.0.tar.gz failed: class java.io.IOException Connect timed out
+INFO: Repository icu++_repo_rules+icu_dat instantiated at:
+  <span class="token operator">&lt;</span>builtin<span class="token operator">&gt;</span>: <span class="token keyword">in</span> <span class="token operator">&lt;</span>toplevel<span class="token operator">&gt;</span>
+Repository rule http_archive defined at:
+  /home/anansi/.cache/bazel/_bazel_anansi/f1ddbdbf66641495720e678963c7609b/external/bazel_tools/tools/build_defs/repo/http.bzl:392:31: <span class="token keyword">in</span> <span class="token operator">&lt;</span>toplevel<span class="token operator">&gt;</span>
+INFO: Repository boringssl+ instantiated at:
+  <span class="token operator">&lt;</span>builtin<span class="token operator">&gt;</span>: <span class="token keyword">in</span> <span class="token operator">&lt;</span>toplevel<span class="token operator">&gt;</span>
+Repository rule http_archive defined at:
+  /home/anansi/.cache/bazel/_bazel_anansi/f1ddbdbf66641495720e678963c7609b/external/bazel_tools/tools/build_defs/repo/http.bzl:392:31: <span class="token keyword">in</span> <span class="token operator">&lt;</span>toplevel<span class="token operator">&gt;</span>
+ERROR: /home/anansi/.cache/bazel/_bazel_anansi/f1ddbdbf66641495720e678963c7609b/external/bazel_tools/tools/build_defs/repo/http.bzl:137:45: An error occurred during the fetch of repository <span class="token string">'icu++_repo_rules+icu_dat'</span><span class="token keyword">:</span>
+   Traceback <span class="token punctuation">(</span>most recent call last<span class="token punctuation">)</span>:
+	File <span class="token string">"/home/anansi/.cache/bazel/_bazel_anansi/f1ddbdbf66641495720e678963c7609b/external/bazel_tools/tools/build_defs/repo/http.bzl"</span>, line 137, column 45, <span class="token keyword">in</span> _http_archive_impl
+		download_info <span class="token operator">=</span> ctx.download_and_extract<span class="token punctuation">(</span>
+Error <span class="token keyword">in</span> download_and_extract: java.io.IOException: Error downloading <span class="token punctuation">[</span>https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz<span class="token punctuation">]</span> to /home/anansi/.cache/bazel/_bazel_anansi/f1ddbdbf66641495720e678963c7609b/external/icu++_repo_rules+icu_dat/temp5768304499620051615/icu4c-76_1-src.tgz: Connect timed out
+Analyzing: target //cuttlefish/package:cvd <span class="token punctuation">(</span>2 packages loaded, 23220 targets configured<span class="token punctuation">)</span>
+
+ERROR: no such package <span class="token string">'@@icu++_repo_rules+icu_dat//'</span><span class="token keyword">:</span> java.io.IOException: Error downloading <span class="token punctuation">[</span>https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz<span class="token punctuation">]</span> to /home/anansi/.cache/bazel/_bazel_anansi/f1ddbdbf66641495720e678963c7609b/external/icu++_repo_rules+icu_dat/temp5768304499620051615/icu4c-76_1-src.tgz: Connect timed out
+ERROR: /home/anansi/.cache/bazel/_bazel_anansi/f1ddbdbf66641495720e678963c7609b/external/icu+/icu4c/source/common/BUILD.bazel:44:11: @@icu+//icu4c/source/common:platform depends on @@icu++_repo_rules+icu_dat//:icu_dat <span class="token keyword">in</span> repository @@icu++_repo_rules+icu_dat <span class="token function">which</span> failed to fetch. no such package <span class="token string">'@@icu++_repo_rules+icu_dat//'</span><span class="token keyword">:</span> java.io.IOException: Error downloading <span class="token punctuation">[</span>https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz<span class="token punctuation">]</span> to /home/anansi/.cache/bazel/_bazel_anansi/f1ddbdbf66641495720e678963c7609b/external/icu++_repo_rules+icu_dat/temp5768304499620051615/icu4c-76_1-src.tgz: Connect timed out
+ERROR: Analysis of target <span class="token string">'//cuttlefish/package:cvd'</span> failed<span class="token punctuation">;</span> build aborted: Analysis failed
+INFO: Elapsed time: 56.765s, Critical Path: 0.12s
+INFO: 1 process: 1 internal.
+ERROR: Build did NOT complete successfully
+FAILED: 
+make<span class="token punctuation">[</span>1<span class="token punctuation">]</span>: *** <span class="token punctuation">[</span>debian/rules:69：override_dh_auto_build<span class="token punctuation">]</span> 错误 1
+make<span class="token punctuation">[</span>1<span class="token punctuation">]</span>: 离开目录“/home/anansi/myspace/google/android/cvd/android-cuttlefish/base”
+make: *** <span class="token punctuation">[</span>debian/rules:59：binary<span class="token punctuation">]</span> 错误 2
+dpkg-buildpackage: 错误: debian/rules binary subprocess returned <span class="token keyword">exit</span> status 2
+debuild: fatal error at line 1182:
+dpkg-buildpackage -us -uc -ui -i -b failed
+</code></pre>
+<p>这个问题似乎不是百分百一定出现，我在两台电脑上搭建的环境，其中一台就没遇到过这个问题，最后通过设置Bazel代理解决，其中Dhttp.proxyHost是你的代理主机，Dhttps.proxyPort=2341是你的代理端口：</p>
+<pre><code>$ echo "startup --host_jvm_args=-Dhttp.proxyHost=127.0.0.1 --host_jvm_args=-Dhttp.proxyPort=2341" &gt;&gt; ~/.bazelrc
+$ echo "startup --host_jvm_args=-Dhttps.proxyHost=127.0.0.1 --host_jvm_args=-Dhttps.proxyPort=2341" &gt;&gt; ~/.bazelrc
+</code></pre>
+<p>最后可能还会遇到Go库的问题，<code>frontend/src/goutil</code>默认使用了<code>"proxy.golang.org|proxy.golang.org|direct"</code>这在国内网络访问可能会出现问题，直接修改<code>frontend/src/goutil</code>：</p>
+<pre class=" language-bash"><code class="prism  language-bash"><span class="token comment">#!/usr/bin/env bash</span>
+
+<span class="token keyword">set</span> -e
+<span class="token keyword">set</span> -x
+
+<span class="token function">cd</span> <span class="token variable">$1</span>
+<span class="token function">shift</span>
+
+
+<span class="token comment"># Override these variables to make go not depend on HOME</span>
+<span class="token function">mkdir</span> -p /tmp/go
+<span class="token function">export</span> GOPATH<span class="token operator">=</span>/tmp/go
+<span class="token function">export</span> GOCACHE<span class="token operator">=</span>/tmp/go/go-build
+
+GOBIN<span class="token operator">=</span>go
+<span class="token keyword">if</span> <span class="token operator">!</span> <span class="token function">command</span> -v go <span class="token operator">&amp;</span><span class="token operator">&gt;</span> /dev/null
+<span class="token keyword">then</span>
+  GOBIN<span class="token operator">=</span>/usr/lib/go-1.13/bin/go
+<span class="token keyword">fi</span>
+
+version<span class="token operator">=</span>`<span class="token variable">$GOBIN</span> version <span class="token operator">|</span> <span class="token punctuation">{</span> <span class="token function">read</span> _ _ <span class="token function">v</span> _<span class="token punctuation">;</span> <span class="token keyword">echo</span> $<span class="token punctuation">{</span>v<span class="token comment">#go}; }`</span>
+
+<span class="token keyword">if</span> <span class="token punctuation">[</span><span class="token punctuation">[</span> <span class="token string">"<span class="token variable">$version</span>"</span> <span class="token operator">&gt;</span> <span class="token string">"1.15"</span> <span class="token punctuation">]</span><span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token keyword">then</span>
+  <span class="token comment"># Temporary solution until https://github.com/golang/go/issues/28194 is fixed</span>
+  <span class="token comment"># in order to retry failed fetch requests.</span>
+  <span class="token comment"># GOPROXY fallback was added in Go 1.15</span>
+  <span class="token comment"># 关键</span>
+  <span class="token comment">#export GOPROXY="proxy.golang.org|proxy.golang.org|direct"</span>
+  go <span class="token function">env</span> -w GO111MODULE<span class="token operator">=</span>on
+  go <span class="token function">env</span> -w GOPROXY<span class="token operator">=</span>https://goproxy.cn,direct
+<span class="token keyword">fi</span>
+
+<span class="token variable">$GOBIN</span> <span class="token string">"<span class="token variable">$@</span>"</span>
+</code></pre>
+<p>主要就是将<code>export GOPROXY="proxy.golang.org|proxy.golang.org|direct"</code>删掉或者注释掉，改为国内可访问的库。<br>
+此时应该就可以构建成功了，至少我就只遇到了这些问题，构建成功后，你应该看到会多出如下deb安装包：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">ls</span> *.deb
+cuttlefish-base_1.12.0_amd64.deb         cuttlefish-orchestration_1.12.0_amd64.deb
+cuttlefish-common_1.12.0_amd64.deb       cuttlefish-user_1.12.0_amd64.deb
+cuttlefish-integration_1.12.0_amd64.deb
+</code></pre>
+<h3 id="4.安装"><span class="prefix"></span><span class="content">4.安装</span><span class="suffix"></span></h3>
+<p>现在执行安装并重启：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">sudo</span> dpkg -i ./cuttlefish-base_*_*64.deb <span class="token operator">||</span> <span class="token function">sudo</span> <span class="token function">apt-get</span> <span class="token function">install</span> -f
+$ <span class="token function">sudo</span> dpkg -i ./cuttlefish-user_*_*64.deb <span class="token operator">||</span> <span class="token function">sudo</span> <span class="token function">apt-get</span> <span class="token function">install</span> -f
+$ <span class="token function">sudo</span> <span class="token function">usermod</span> -aG kvm,cvdnetwork,render <span class="token variable">$USER</span>
+$ <span class="token function">reboot</span>
+</code></pre>
+<h3 id="5.使用"><span class="prefix"></span><span class="content">5.使用</span><span class="suffix"></span></h3>
+<p>现在有了编译好的内核镜像和模拟器，但是还不能直接运行，还需要一些相关的依赖主要三主机i工具和其他一些img，这些可以自己拉取aosp编译，也可以直接下载官方提供的，因为我主要是调试内核，所以我就直接使用官方提供的，下载地址：<a href="https://ci.android.com/builds/branches/aosp-android-latest-release/grid?legacy=1">ci.android.com</a><br>
+页面上方有分支搜索栏，搜索你要的系统分支，一般以gsi结尾<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2025-06-13/AszzRtibVvskMpKt.png" alt="输入图片说明">点击X旁边的三条横杠的过滤按钮，只选择<code>aosp_cf_x86_64_phone_userdebug</code><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2025-06-13/rLxfYxK0n92tZSN4.png" alt="输入图片说明">随便选一个(至少我是随便选的)项，点击他的绿色框，当然你也可以点击那个下载键，只是可能会多一个页面家在步骤，点击后直接到<strong>Artifacts</strong>页面，这里需要下载<code>aosp_cf_x86_64_phone-img-13439841.zip</code>和<code>cvd-host_package.tar.gz</code>即可（arm64环境是<code>aosp_cf_arm64_only_phone-img-xxxxxx.zip</code>），注意这里必须要点进去下载，不可以右击拷贝链接，然后wget下载，这样下载下来的只是html页面，我就犯过这样的错误，下载后的内容起码要一两百MB，如果只有几KB那就有问题。<br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2025-06-13/7MetKO4kMX03H7zL.png" alt="输入图片说明"><br>
+<img src="https://raw.githubusercontent.com/anansi2safe/image/main/imgs/2025-06-13/Y7shKYq8J74ifkVR.png" alt="输入图片说明">下载完成后解压：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">tar</span> -xvf /path/to/cvd-host_package.tar.gz
+$ unzip aosp_cf_x86_64_phone-img-13439841.zip
+</code></pre>
+<p>这里要注意，不要在UI窗口中点击提取，那样解压出的文件是有缺失的，执行完上面两条命令后，正常你应该在目录下看到：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ <span class="token function">ls</span>
+android-info.txt                       lib64
+aosp_cf_x86_64_phone-img-13439841.zip  metadata.img
+bin                                    misc.img
+boot.img                               nativetest64
+bootloader                             super.img
+cuttlefish_assembly                    userdata.img
+cuttlefish_runtime                     usr
+cuttlefish_runtime.1                   vbmeta.img
+cvd-host_package.tar.gz                vbmeta_system.img
+etc                                    vbmeta_vendor_dlkm.img
+launcher_pseudo_fetcher_config.json    vendor_boot.img
+</code></pre>
+<p>文件不能有缺失，否则cvd将无法成功启动。<br>
+最后使用如下命令启动模拟器加载刚刚编译的内核镜像：</p>
+<pre class=" language-bash"><code class="prism  language-bash">HOME<span class="token operator">=</span><span class="token variable">$PWD</span> ./bin/launch_cvd --daemon --kernel_path<span class="token operator">=</span><span class="token operator">&lt;</span>Your path<span class="token operator">&gt;</span>bzImage --initramfs_path<span class="token operator">=</span><span class="token operator">&lt;</span>Your path<span class="token operator">&gt;</span>/initramfs.img
+</code></pre>
+<p>如果执行成功，最后将会输出如下内容：</p>
+<pre class=" language-bash"><code class="prism  language-bash"><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">=</span>
+NOTICE:
+
+We collect usage statistics <span class="token keyword">in</span> accordance with our
+Content Licenses <span class="token punctuation">(</span>https://source.android.com/setup/start/licenses<span class="token punctuation">)</span>,
+Contributor License Agreement <span class="token punctuation">(</span>https://cla.developers.google.com/<span class="token punctuation">)</span>,
+Privacy Policy <span class="token punctuation">(</span>https://policies.google.com/privacy<span class="token punctuation">)</span> and
+Terms of Service <span class="token punctuation">(</span>https://policies.google.com/terms<span class="token punctuation">)</span>.
+<span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">==</span><span class="token operator">=</span>
+
+launch_cvd I 06-13 16:20:22 249804 249804 launch_cvd.cc:184<span class="token punctuation">]</span> Host changed from last run: 0
+assemble_cvd D 06-13 16:20:22 249934 249934 fetcher_config.cpp:212<span class="token punctuation">]</span> Could not <span class="token function">find</span> <span class="token function">file</span> ending <span class="token keyword">in</span> kernel
+assemble_cvd D 06-13 16:20:22 249934 249934 fetcher_config.cpp:212<span class="token punctuation">]</span> Could not <span class="token function">find</span> <span class="token function">file</span> ending <span class="token keyword">in</span> initramfs.img
+assemble_cvd I 06-13 16:20:22 249934 249934 flags.cc:825<span class="token punctuation">]</span> Launching CVD using --config<span class="token operator">=</span><span class="token string">'phone'</span><span class="token keyword">.</span>
+assemble_cvd D 06-13 16:20:22 249934 249934 subprocess.cpp:266<span class="token punctuation">]</span> Started <span class="token punctuation">(</span>pid: 249937<span class="token punctuation">)</span>: /home/anansi/myspace/google/android/vm/bin/extract-ikconfig
+assemble_cvd D 06-13 16:20:22 249934 249934 subprocess.cpp:268<span class="token punctuation">]</span> /home/anansi/myspace/google/android/kernel/out/android12-5.10/dist/bzImage
+GPU auto mode: did not detect prerequisites <span class="token keyword">for</span> accelerated rendering support, enabling --gpu_mode<span class="token operator">=</span>guest_swiftshader.
+cpio: empty archive
+Requested to <span class="token keyword">continue</span> an existing session, <span class="token punctuation">(</span>the default<span class="token punctuation">)</span> but the disk files have become out of date. Wiping the old session files and starting a new session <span class="token keyword">for</span> device CUTTLEFISHCVD011
+<span class="token punctuation">[</span>2025-06-13T08:20:34.570008975+00:00 INFO  crosvm<span class="token punctuation">]</span> crosvm started.
+<span class="token punctuation">[</span>2025-06-13T08:20:34.570496321+00:00 INFO  crosvm<span class="token punctuation">]</span> CLI arguments parsed.
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621318709+00:00 INFO  disk<span class="token punctuation">]</span> disk size 1387, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621417024+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621539821+00:00 INFO  disk<span class="token punctuation">]</span> disk size 20480, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621568516+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621609709+00:00 INFO  disk<span class="token punctuation">]</span> disk size 1048576, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621627812+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621652559+00:00 INFO  disk<span class="token punctuation">]</span> disk size 67108864, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621671269+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621694088+00:00 INFO  disk<span class="token punctuation">]</span> disk size 67108864, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621712036+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621734180+00:00 INFO  disk<span class="token punctuation">]</span> disk size 1048576, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.621970604+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622004728+00:00 INFO  disk<span class="token punctuation">]</span> disk size 1048576, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622023142+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622046247+00:00 INFO  disk<span class="token punctuation">]</span> disk size 67108864, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622064189+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622087381+00:00 INFO  disk<span class="token punctuation">]</span> disk size 67108864, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622105201+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622127484+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622145364+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622169706+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622187641+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622210413+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622227867+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622251446+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622269506+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622293199+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622311361+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622333194+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622351404+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622373280+00:00 INFO  disk<span class="token punctuation">]</span> disk size 7516192768, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622391963+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622415915+00:00 INFO  disk<span class="token punctuation">]</span> disk size 6442450944, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622433732+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622456597+00:00 INFO  disk<span class="token punctuation">]</span> disk size 16777216, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622474041+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622503430+00:00 INFO  disk<span class="token punctuation">]</span> disk size 45056, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622522149+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622623504+00:00 INFO  disk<span class="token punctuation">]</span> disk size 1387, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622643174+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622708975+00:00 INFO  disk<span class="token punctuation">]</span> disk size 20480, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622732131+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622761508+00:00 INFO  disk<span class="token punctuation">]</span> disk size 1048576, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622779680+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622801887+00:00 INFO  disk<span class="token punctuation">]</span> disk size 67108864, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622819720+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622841907+00:00 INFO  disk<span class="token punctuation">]</span> disk size 67108864, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622859883+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622881333+00:00 INFO  disk<span class="token punctuation">]</span> disk size 1048576, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622899164+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622921327+00:00 INFO  disk<span class="token punctuation">]</span> disk size 1048576, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622938992+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622960695+00:00 INFO  disk<span class="token punctuation">]</span> disk size 67108864, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.622978813+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623000485+00:00 INFO  disk<span class="token punctuation">]</span> disk size 67108864, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623018771+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623040524+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623058384+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623080699+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623098352+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623120171+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623137855+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623159131+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623177465+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623199553+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623217587+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623239345+00:00 INFO  disk<span class="token punctuation">]</span> disk size 65536, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623257461+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623279447+00:00 INFO  disk<span class="token punctuation">]</span> disk size 7516192768, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623297752+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623319424+00:00 INFO  disk<span class="token punctuation">]</span> disk size 6442450944, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623337630+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623359698+00:00 INFO  disk<span class="token punctuation">]</span> disk size 16777216, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623377832+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623401634+00:00 INFO  disk<span class="token punctuation">]</span> disk size 45056, 
+<span class="token punctuation">[</span>2025-06-13T08:20:34.623420202+00:00 INFO  disk<span class="token punctuation">]</span> Disk image <span class="token function">file</span> is hosted on <span class="token function">file</span> system <span class="token function">type</span> ef53
+<span class="token punctuation">[</span>2025-06-13T08:20:34.645826878+00:00 INFO  crosvm<span class="token punctuation">]</span> exiting with success
+Point your browser to https://0.0.0.0:8443 to interact with the device.
+Serial console is disabled<span class="token punctuation">;</span> use -console<span class="token operator">=</span>true to <span class="token function">enable</span> it
+The following files contain useful debugging information:
+  Launcher log: /home/anansi/myspace/google/android/vm/cuttlefish_runtime.1/launcher.log
+  Android's logcat output: /home/anansi/myspace/google/android/vm/cuttlefish_runtime.1/logcat
+  Kernel log: /home/anansi/myspace/google/android/vm/cuttlefish_runtime.1/kernel.log
+  Instance configuration: /home/anansi/myspace/google/android/vm/cuttlefish_runtime.1/cuttlefish_config.json
+  Instance environment: /home/anansi/myspace/google/android/vm/.cuttlefish.sh
+Virtual device booted successfully
+VIRTUAL_DEVICE_BOOT_COMPLETED
+</code></pre>
+<p>并且使用adb可以正常连接：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ adb shell
+vsoc_x86_64:/ $ <span class="token function">uname</span> -a
+Linux localhost 5.10.136-android12-9 <span class="token comment">#1 SMP PREEMPT Tue Aug 16 12:34:54 UTC 2022 x86_64</span>
+vsoc_x86_64:/ $
+</code></pre>
+<p>如果想要在浏览器中查看并管理，直接访问<code>https://localhost:8443/</code>，然后无视安全风险继续访问并connect device就行了</p>
+<p>想要停止cvd，就直接执行<code>HOME=$PWD ./bin/stop_cvd</code></p>
+<h2 id="gdb调试"><span class="prefix"></span><span class="content">GDB调试</span><span class="suffix"></span></h2>
+<p>启动gdb调试比较容易，直接使用如下参数启动cvd:</p>
+<pre class=" language-bash"><code class="prism  language-bash">HOME<span class="token operator">=</span><span class="token variable">$PWD</span> ./bin/launch_cvd --daemon --kernel_path<span class="token operator">=</span><span class="token operator">&lt;</span>Your path<span class="token operator">&gt;</span>/bzImage --initramfs_path<span class="token operator">=</span><span class="token operator">&lt;</span>Your path<span class="token operator">&gt;</span>/initramfs.img -gdb_port<span class="token operator">=</span>1234 -cpus<span class="token operator">=</span>1 -extra_kernel_cmdline nokaslr
+</code></pre>
+<p>gdb在dist目录下使用：</p>
+<pre class=" language-bash"><code class="prism  language-bash">$ gdb ./vmlinux
+target remote :1234
+</code></pre>
+<p>之后就可以正常的使用hbreak等命令向指定函数下端点，配合pwndbg效果更佳</p>
+</div>
+</body>
+
+</html>
