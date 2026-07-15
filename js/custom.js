@@ -5,7 +5,8 @@ function isMobile(){
       $("#home").css({
         "background": "url(./img/home2.jpg)",
         "background-size": "cover",
-        "background-repeat": "no-repeat"
+        "background-repeat": "no-repeat",
+        "background-position": "center center"
         });
     }
 }

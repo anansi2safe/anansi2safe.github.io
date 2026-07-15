@@ -1,0 +1,235 @@
+:root {
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  color: #24292f;
+  background: #f6f8fa;
+  line-height: 1.75;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+  background: #f6f8fa;
+}
+
+.home-link {
+  position: fixed;
+  z-index: 20;
+  top: max(16px, env(safe-area-inset-top));
+  left: max(16px, env(safe-area-inset-left));
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  color: #24292f;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid #d0d7de;
+  border-radius: 999px;
+  box-shadow: 0 4px 18px rgba(31, 35, 40, .1);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-decoration: none;
+  backdrop-filter: blur(8px);
+}
+
+.home-link:hover,
+.home-link:focus-visible {
+  color: #425bb5;
+  border-color: #425bb5;
+  outline: none;
+}
+
+.article-shell {
+  width: min(100% - 40px, 980px);
+  margin: 40px auto;
+  padding: 64px clamp(24px, 6vw, 72px);
+  background: #fff;
+  border: 1px solid #d8dee4;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(31, 35, 40, .07);
+}
+
+.article-header {
+  margin-bottom: 48px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid #d8dee4;
+}
+
+.article-header h1 {
+  margin: 0;
+  color: #1f2328;
+  font-size: clamp(30px, 5vw, 48px);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.article-content {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.article-content h1,
+.article-content h2,
+.article-content h3,
+.article-content h4 {
+  margin-top: 2em;
+  margin-bottom: .75em;
+  color: #1f2328;
+  line-height: 1.35;
+  scroll-margin-top: 24px;
+}
+
+.article-content h1,
+.article-content h2 {
+  padding-bottom: .35em;
+  border-bottom: 1px solid #d8dee4;
+}
+
+.article-content a {
+  color: #0969da;
+  text-underline-offset: 3px;
+}
+
+.article-content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 24px auto;
+  border-radius: 6px;
+}
+
+.article-content pre {
+  max-width: 100%;
+  margin: 20px 0;
+  padding: 18px;
+  overflow: auto;
+  color: #e6edf3;
+  background: #161b22;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 4;
+  -webkit-overflow-scrolling: touch;
+}
+
+.article-content code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.article-content :not(pre) > code {
+  padding: .15em .4em;
+  color: #cf222e;
+  background: #eff1f3;
+  border-radius: 4px;
+  font-size: .9em;
+}
+
+.article-content blockquote {
+  margin: 20px 0;
+  padding: 2px 18px;
+  color: #57606a;
+  border-left: 4px solid #425bb5;
+}
+
+.article-toc {
+  margin: 24px 0 40px;
+  padding: 20px 24px;
+  background: #f6f8fa;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+}
+
+.article-toc ul {
+  margin: 12px 0 0;
+  padding-left: 22px;
+}
+
+.article-toc .toc-h3 {
+  margin-left: 16px;
+}
+
+.article-toc .toc-h4 {
+  margin-left: 32px;
+}
+
+.article-status {
+  color: #57606a;
+}
+
+.article-error {
+  padding: 16px 18px;
+  color: #9a1b1b;
+  background: #fff1f1;
+  border: 1px solid #ffc9c9;
+  border-radius: 8px;
+}
+
+.article-content table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.article-content th,
+.article-content td {
+  padding: 8px 12px;
+  border: 1px solid #d0d7de;
+}
+
+.article-content hr {
+  height: 1px;
+  margin: 36px 0;
+  background: #d8dee4;
+  border: 0;
+}
+
+@media (max-width: 640px) {
+  .home-link {
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+  }
+
+  .article-shell {
+    width: 100%;
+    margin: 0;
+    padding: 78px 18px max(36px, env(safe-area-inset-bottom));
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .article-header {
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+  }
+
+  .article-content {
+    font-size: 15px;
+  }
+
+  .article-content pre {
+    width: 100%;
+    margin-right: auto;
+    margin-left: auto;
+    border-radius: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
